@@ -1,0 +1,15 @@
+{
+    "compilerOptions": {
+      "module": "amd",
+      "noImplicitAny": true,
+      "removeComments": true,
+      "preserveConstEnums": true,
+      "outFile": "Build/out.js",
+      "sourceMap": true,
+      "target":"es5",
+      "alwaysStrict":true,
+      "lib": ["dom", "es5", "ES2015"]
+    },
+    "include": ["*.ts", "WebPage/*.ts"],
+    //"exclude": ["Main.ts"]
+}
