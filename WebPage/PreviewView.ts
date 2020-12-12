@@ -1,6 +1,6 @@
 import { Model } from "./Model";
 import * as IMUtil from "./ImageUtil";
-import { CanvasView } from "./View";
+import { CanvasView } from "./CanvasView";
 
 enum SelectedView{
     image = 0,

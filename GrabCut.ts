@@ -1,5 +1,3 @@
-//TODO: Add user touchup feature
-
 import * as GMM from "./GMM";
 import * as Graph from "./Graph";
 import * as Mat from "./Matrix";
@@ -14,10 +12,13 @@ export enum Trimap{
 export class GrabCut{
     private height:number;
     private width:number;
-    private img:Mat.Matrix[][]; //Matrices -> [R,G,B] Each element ranges from 0-1
+    private img:Mat.Matrix[][]; //Matrices -> [R,G,B] Each element ranges from 0-255
     private trimap: Uint8Array;
     private matte: Uint8Array; 
 
+    private fgGMM = new GMM.GMM();
+    private bgGMM = new GMM.GMM();
+    
     constructor(image:Mat.Matrix[][]){
         this.height = image.length;
         this.width = image[0].length;
@@ -38,44 +39,46 @@ export class GrabCut{
 
     //Returns the alpha mask
     BeginCrop(){
-        console.log(this.img);
         for(let i = 0; i < this.trimap.length; i++){
             this.matte[i] = (this.trimap[i] == Trimap.Background)? Trimap.Background : Trimap.Foreground;
         }
 
         let [fgPixels, bgPixels] = GrabCut.SegregatePixels(this.img, this.matte, 0,0, this.height, this.width);
 
-        let [fgGMM, bgGMM] = [new GMM.GMM(), new GMM.GMM()];
         //Initial color GMMs
         const GMM_N_ITER = 3;
-        fgGMM.Fit(fgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
-        bgGMM.Fit(bgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
+        this.fgGMM.Fit(fgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
+        this.bgGMM.Fit(bgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
 
+        let MAX_ITER = 1;
+        this.RunIterations(MAX_ITER);
+    }
+
+    RunIterations(nIter:number){
         //Create network graph (with edges between neighbouring pixels set)
         //Clone this network & populate with source and sink for use in the graphcut.
         let [networkBase, maxCapacity] = GrabCut.GeneratePixel2PixelGraph(this.img);
 
-        let MAX_ITER = 1;
-        for(let iter = 0; iter < MAX_ITER; iter++){
+        for(let iter = 0; iter < nIter; iter++){
             console.log(`iter:${iter}`);
             
             //Update GMMs from previous graphcut result
             //Using the result from the previous graph cut, reclassify pixels as either BG or FG
-            [fgPixels, bgPixels] = GrabCut.SegregatePixels(this.img, this.matte, 0,0, this.height, this.width);
+            let [fgPixels, bgPixels] = GrabCut.SegregatePixels(this.img, this.matte, 0,0, this.height, this.width);
             
             //Within the BG and FG pixel sets, group them to the most similar GMM cluster
-            let [fgClusters, bgClusters] = GrabCut.BinPixels(fgGMM, bgGMM, bgPixels, fgPixels);
+            let [fgClusters, bgClusters] = GrabCut.BinPixels(this.fgGMM, this.bgGMM, bgPixels, fgPixels);
             //console.log(fgClusters, bgClusters);
             //Generate new GMMs based on the reclustered data.
-            [fgGMM, bgGMM] = [fgClusters, bgClusters].map(mixture => {
+            [this.fgGMM, this.bgGMM] = [fgClusters, bgClusters].map(mixture => {
                 let nonEmptyClusters = mixture.filter(cluster => cluster.length > 0);
                 return GMM.GMM.PreclusteredDataToGMM(nonEmptyClusters);
             });
-            console.log(`fg clusters:${fgGMM.clusters.length}, bg clusters:${bgGMM.clusters.length}`);
+            console.log(`fg clusters:${this.fgGMM.clusters.length}, bg clusters:${this.bgGMM.clusters.length}`);
 
             let networkCopy = Graph.Network.Clone(networkBase);
             
-            let [fullGraph, source, sink] = GrabCut.AddSourceAndSink(networkCopy, maxCapacity, fgGMM, bgGMM, this.img, this.trimap);
+            let [fullGraph, source, sink] = GrabCut.AddSourceAndSink(networkCopy, maxCapacity, this.fgGMM, this.bgGMM, this.img, this.trimap);
             
             console.log('max flow');
             let levelGraph = Graph.DinicMaxFlow(fullGraph, source, sink); 
@@ -87,8 +90,9 @@ export class GrabCut{
         //Alpha mask is now stored in the matte array.
     }
 
+    //Mask values will be between 0-1
     GetAlphaMask():number[][]{
-        let alpha = Util.Fill2DObj<number>(this.height, this.width, () => 0);
+        let alpha = Mat.CreateMatrix(this.height, this.width);
         for(let i = 0; i < this.matte.length; i++){
             let [r,c] = GrabCut.get2DArrayIndex(i, this.width);
             alpha[r][c] = (this.matte[i] == Trimap.Foreground)? 1.0 : 0.0;

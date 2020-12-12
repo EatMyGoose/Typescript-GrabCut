@@ -1008,6 +1008,8 @@ define("GrabCut", ["require", "exports", "GMM", "Graph", "Matrix", "Utility"], f
     })(Trimap = exports.Trimap || (exports.Trimap = {}));
     var GrabCut = (function () {
         function GrabCut(image) {
+            this.fgGMM = new GMM.GMM();
+            this.bgGMM = new GMM.GMM();
             this.height = image.length;
             this.width = image[0].length;
             this.img = image;
@@ -1024,29 +1026,30 @@ define("GrabCut", ["require", "exports", "GMM", "Graph", "Matrix", "Utility"], f
             }
         };
         GrabCut.prototype.BeginCrop = function () {
-            var _a, _b;
-            console.log(this.img);
             for (var i = 0; i < this.trimap.length; i++) {
                 this.matte[i] = (this.trimap[i] == Trimap.Background) ? Trimap.Background : Trimap.Foreground;
             }
-            var _c = GrabCut.SegregatePixels(this.img, this.matte, 0, 0, this.height, this.width), fgPixels = _c[0], bgPixels = _c[1];
-            var _d = [new GMM.GMM(), new GMM.GMM()], fgGMM = _d[0], bgGMM = _d[1];
+            var _a = GrabCut.SegregatePixels(this.img, this.matte, 0, 0, this.height, this.width), fgPixels = _a[0], bgPixels = _a[1];
             var GMM_N_ITER = 3;
-            fgGMM.Fit(fgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
-            bgGMM.Fit(bgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
-            var _e = GrabCut.GeneratePixel2PixelGraph(this.img), networkBase = _e[0], maxCapacity = _e[1];
+            this.fgGMM.Fit(fgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
+            this.bgGMM.Fit(bgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
             var MAX_ITER = 1;
-            for (var iter = 0; iter < MAX_ITER; iter++) {
+            this.RunIterations(MAX_ITER);
+        };
+        GrabCut.prototype.RunIterations = function (nIter) {
+            var _a;
+            var _b = GrabCut.GeneratePixel2PixelGraph(this.img), networkBase = _b[0], maxCapacity = _b[1];
+            for (var iter = 0; iter < nIter; iter++) {
                 console.log("iter:" + iter);
-                _a = GrabCut.SegregatePixels(this.img, this.matte, 0, 0, this.height, this.width), fgPixels = _a[0], bgPixels = _a[1];
-                var _f = GrabCut.BinPixels(fgGMM, bgGMM, bgPixels, fgPixels), fgClusters = _f[0], bgClusters = _f[1];
-                _b = [fgClusters, bgClusters].map(function (mixture) {
+                var _c = GrabCut.SegregatePixels(this.img, this.matte, 0, 0, this.height, this.width), fgPixels = _c[0], bgPixels = _c[1];
+                var _d = GrabCut.BinPixels(this.fgGMM, this.bgGMM, bgPixels, fgPixels), fgClusters = _d[0], bgClusters = _d[1];
+                _a = [fgClusters, bgClusters].map(function (mixture) {
                     var nonEmptyClusters = mixture.filter(function (cluster) { return cluster.length > 0; });
                     return GMM.GMM.PreclusteredDataToGMM(nonEmptyClusters);
-                }), fgGMM = _b[0], bgGMM = _b[1];
-                console.log("fg clusters:" + fgGMM.clusters.length + ", bg clusters:" + bgGMM.clusters.length);
+                }), this.fgGMM = _a[0], this.bgGMM = _a[1];
+                console.log("fg clusters:" + this.fgGMM.clusters.length + ", bg clusters:" + this.bgGMM.clusters.length);
                 var networkCopy = Graph.Network.Clone(networkBase);
-                var _g = GrabCut.AddSourceAndSink(networkCopy, maxCapacity, fgGMM, bgGMM, this.img, this.trimap), fullGraph = _g[0], source = _g[1], sink = _g[2];
+                var _e = GrabCut.AddSourceAndSink(networkCopy, maxCapacity, this.fgGMM, this.bgGMM, this.img, this.trimap), fullGraph = _e[0], source = _e[1], sink = _e[2];
                 console.log('max flow');
                 var levelGraph = Graph.DinicMaxFlow(fullGraph, source, sink);
                 console.log('cut');
@@ -1055,7 +1058,7 @@ define("GrabCut", ["require", "exports", "GMM", "Graph", "Matrix", "Utility"], f
             }
         };
         GrabCut.prototype.GetAlphaMask = function () {
-            var alpha = Util.Fill2DObj(this.height, this.width, function () { return 0; });
+            var alpha = Mat.CreateMatrix(this.height, this.width);
             for (var i = 0; i < this.matte.length; i++) {
                 var _a = GrabCut.get2DArrayIndex(i, this.width), r = _a[0], c = _a[1];
                 alpha[r][c] = (this.matte[i] == Trimap.Foreground) ? 1.0 : 0.0;
@@ -1307,6 +1310,127 @@ define("Main", ["require", "exports", "Graph", "Matrix", "ClusterGenerator", "GM
     }
     ClusterGeneratorTest();
 });
+define("WebPage/Camera", ["require", "exports"], function (require, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.GetScale = exports.Transform2D = exports.TransformRect = exports.FitToRectangle = exports.Canvas2Buffer = exports.Buffer2Canvas = exports.BufferRect2CanvasRect = exports.CanvasRect2BufferRect = exports.Points2Rect = exports.RelPos = exports.ClipRect = exports.RectB2Rect = exports.Rect2RectB = exports.origin = void 0;
+    exports.origin = { x: 0, y: 0 };
+    function Rect2RectB(rect) {
+        return {
+            left: rect.x,
+            right: rect.x + rect.width,
+            top: rect.y,
+            bot: rect.y + rect.height
+        };
+    }
+    exports.Rect2RectB = Rect2RectB;
+    function RectB2Rect(rectB) {
+        return {
+            x: rectB.left,
+            y: rectB.top,
+            width: rectB.right - rectB.left,
+            height: rectB.bot - rectB.top
+        };
+    }
+    exports.RectB2Rect = RectB2Rect;
+    function ClipRect(rect, boundary) {
+        var rectB = Rect2RectB(rect);
+        var boundaryB = Rect2RectB(boundary);
+        var clippedB = {
+            left: Math.max(rectB.left, boundaryB.left),
+            right: Math.min(rectB.right, boundaryB.right),
+            top: Math.max(rectB.top, boundaryB.top),
+            bot: Math.min(rectB.bot, boundaryB.bot)
+        };
+        return RectB2Rect(clippedB);
+    }
+    exports.ClipRect = ClipRect;
+    function RelPos(clientX, clientY, target) {
+        var boundingBox = target.getBoundingClientRect();
+        var relPoint = {
+            x: clientX - boundingBox.x,
+            y: clientY - boundingBox.y
+        };
+        return relPoint;
+    }
+    exports.RelPos = RelPos;
+    function Points2Rect(p1, p2) {
+        var _a = [Math.min(p1.y, p2.y), Math.min(p1.x, p2.x)], top = _a[0], left = _a[1];
+        var _b = [Math.max(p1.y, p2.y), Math.max(p1.x, p2.x)], bot = _b[0], right = _b[1];
+        var _c = [(bot - top), (right - left)], height = _c[0], width = _c[1];
+        return {
+            x: left,
+            y: top,
+            width: width,
+            height: height
+        };
+    }
+    exports.Points2Rect = Points2Rect;
+    function CanvasRect2BufferRect(canvasRect, drawRegion, bufferWidth, bufferHeight) {
+        var cRectB = Rect2RectB(canvasRect);
+        var bufferTop = Canvas2Buffer(cRectB.left, cRectB.top, drawRegion, bufferWidth, bufferHeight);
+        var bufferBot = Canvas2Buffer(cRectB.right, cRectB.bot, drawRegion, bufferWidth, bufferHeight);
+        return Points2Rect(bufferTop, bufferBot);
+    }
+    exports.CanvasRect2BufferRect = CanvasRect2BufferRect;
+    function BufferRect2CanvasRect(bufferRect, bufferWidth, bufferHeight, clientRegion) {
+        var bufferRectB = Rect2RectB(bufferRect);
+        var canvasTop = Buffer2Canvas(bufferRectB.left, bufferRectB.top, bufferWidth, bufferHeight, clientRegion);
+        var canvasBot = Buffer2Canvas(bufferRectB.right, bufferRectB.bot, bufferWidth, bufferHeight, clientRegion);
+        return Points2Rect(canvasTop, canvasBot);
+    }
+    exports.BufferRect2CanvasRect = BufferRect2CanvasRect;
+    function Buffer2Canvas(bufferX, bufferY, bufferWidth, bufferHeight, clientRegion) {
+        var bufferDim = { x: 0, y: 0, width: bufferWidth, height: bufferHeight };
+        var bufferPoint = { x: bufferX, y: bufferY };
+        return Transform2D(bufferPoint, bufferDim, clientRegion);
+    }
+    exports.Buffer2Canvas = Buffer2Canvas;
+    function Canvas2Buffer(clientX, clientY, clientRegion, bufferWidth, bufferHeight) {
+        var bufferDim = { x: 0, y: 0, width: bufferWidth, height: bufferHeight };
+        var clientPoint = { x: clientX, y: clientY };
+        return Transform2D(clientPoint, clientRegion, bufferDim);
+    }
+    exports.Canvas2Buffer = Canvas2Buffer;
+    function FitToRectangle(maxWidth, maxHeight, imgWidth, imgHeight) {
+        var _a = [maxWidth / imgWidth, maxHeight / imgHeight], xScale = _a[0], yScale = _a[1];
+        var minScale = Math.min(xScale, yScale);
+        var scale = ((minScale) < 1) ? minScale : 1.0;
+        var w = imgWidth * scale;
+        var h = imgHeight * scale;
+        var x = (maxWidth - w) / 2;
+        var y = (maxHeight - h) / 2;
+        return { x: x, y: y, width: w, height: h };
+    }
+    exports.FitToRectangle = FitToRectangle;
+    function TransformRect(rect, sourceDim, destDim) {
+        var rectB = Rect2RectB(rect);
+        var p1 = { x: rectB.left, y: rectB.top };
+        var p2 = { x: rectB.right, y: rectB.bot };
+        var destP1 = Transform2D(p1, sourceDim, destDim);
+        var destP2 = Transform2D(p2, sourceDim, destDim);
+        return Points2Rect(destP1, destP2);
+    }
+    exports.TransformRect = TransformRect;
+    function Transform2D(point, sourceDim, destDim) {
+        var xFrac = (point.x - sourceDim.x) / sourceDim.width;
+        var yFrac = (point.y - sourceDim.y) / sourceDim.height;
+        var destX = (xFrac * destDim.width) + destDim.x;
+        var destY = (yFrac * destDim.height) + destDim.y;
+        return { x: destX, y: destY };
+    }
+    exports.Transform2D = Transform2D;
+    function GetScale(sourceDim, destDim) {
+        var eps = 10e-2;
+        var yScale = destDim.height / sourceDim.height;
+        var xScale = destDim.width / sourceDim.width;
+        if (Math.abs(yScale - xScale) > eps) {
+            console.error("Dimensions are not equally scaled across the x & y axes");
+        }
+        return yScale;
+    }
+    exports.GetScale = GetScale;
+});
 define("WebPage/FileInput", ["require", "exports"], function (require, exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -1344,7 +1468,31 @@ define("WebPage/FileInput", ["require", "exports"], function (require, exports) 
 define("WebPage/ImageUtil", ["require", "exports", "Matrix", "Utility"], function (require, exports, Mat, Util) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.CreateBWImage = exports.ApplyAlphaMask = exports.ImageData2Mat = exports.EmptyImage = void 0;
+    exports.CreateBWImage = exports.ApplyAlphaMask = exports.ImageData2Mat = exports.Trimap2BW = exports.EmptyImage = exports.Temp2DCanvas = exports.RGBA = void 0;
+    var RGBA = (function () {
+        function RGBA(r, g, b, a) {
+            this.red = r;
+            this.green = g;
+            this.blue = b;
+            this.alpha = a;
+        }
+        RGBA.prototype.Equals = function (other) {
+            return (this.red == other.red &&
+                this.green == other.green &&
+                this.blue == other.blue &&
+                this.alpha == other.alpha);
+        };
+        RGBA.prototype.EqualsExcludeAlpha = function (other) {
+            return (this.red == other.red &&
+                this.green == other.green &&
+                this.blue == other.blue);
+        };
+        RGBA.prototype.CSSValue = function () {
+            return "rgba(" + this.red + "," + this.green + "," + this.blue + "," + this.alpha / 255 + ")";
+        };
+        return RGBA;
+    }());
+    exports.RGBA = RGBA;
     var Temp2DCanvas = (function () {
         function Temp2DCanvas(width, height) {
             var c = document.createElement("canvas");
@@ -1356,6 +1504,9 @@ define("WebPage/ImageUtil", ["require", "exports", "Matrix", "Utility"], functio
             this.width = width;
             this.height = height;
         }
+        Temp2DCanvas.prototype.GetHDC = function () {
+            return this.hDC;
+        };
         Temp2DCanvas.prototype.GetImageData = function () {
             return this.hDC.getImageData(0, 0, this.width, this.height);
         };
@@ -1365,6 +1516,7 @@ define("WebPage/ImageUtil", ["require", "exports", "Matrix", "Utility"], functio
         };
         return Temp2DCanvas;
     }());
+    exports.Temp2DCanvas = Temp2DCanvas;
     var blankImg = null;
     function EmptyImage() {
         if (blankImg != null)
@@ -1374,6 +1526,24 @@ define("WebPage/ImageUtil", ["require", "exports", "Matrix", "Utility"], functio
         return blankImg;
     }
     exports.EmptyImage = EmptyImage;
+    function Trimap2BW(trimap) {
+        var _a = [trimap[0].length, trimap.length], width = _a[0], height = _a[1];
+        var canvas = new Temp2DCanvas(width, height);
+        var imgData = canvas.GetImageData();
+        var arr = imgData.data;
+        for (var y = 0; y < height; y++) {
+            for (var x = 0; x < width; x++) {
+                var offset = (y * width + x) * 4;
+                var lum = trimap[y][x] * 122;
+                arr[offset + 0] = lum;
+                arr[offset + 1] = lum;
+                arr[offset + 2] = lum;
+                arr[offset + 3] = 255;
+            }
+        }
+        return canvas.SetImageData(imgData);
+    }
+    exports.Trimap2BW = Trimap2BW;
     function ImageData2Mat(data) {
         var result = Util.Fill2DObj(data.height, data.width, function () { return Mat.CreateMatrix(3, 1); });
         var buffer = data.data;
@@ -1425,292 +1595,6 @@ define("WebPage/ImageUtil", ["require", "exports", "Matrix", "Utility"], functio
     }
     exports.CreateBWImage = CreateBWImage;
 });
-define("WebPage/Editor", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "Utility", "WebPage/Camera"], function (require, exports, Cut, ImgUtil, Util, Cam) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.Editor = void 0;
-    var Editor = (function () {
-        function Editor(file, canvasID) {
-            var _this = this;
-            this.img = null;
-            this.selStart = Cam.origin;
-            this.selEnd = Cam.origin;
-            this.inSelection = false;
-            this.file = file;
-            this.canvas = document.getElementById(canvasID);
-            var callback = function () { return Editor.loadImage(_this); };
-            this.file.RegisterImageLoad(callback);
-            var loadDrawCallback = function () { return Editor.beginDraw(_this); };
-            window.addEventListener("resize", loadDrawCallback);
-            this.canvas.addEventListener("mousedown", function (ev) { return Editor.beginRect(ev, _this); });
-            this.canvas.addEventListener("mousemove", function (ev) { return Editor.dragRect(ev, _this); });
-            this.canvas.addEventListener("mouseup", function (ev) { return Editor.endRect(ev, _this); });
-            var btn = document.getElementById("btn-crop");
-            btn.addEventListener("click", function () { return Editor.CropHandler(_this); });
-        }
-        Editor.beginRect = function (e, self) {
-            var start = Cam.RelPos(e.clientX, e.clientY, self.canvas);
-            self.selStart = start;
-            self.selEnd = start;
-            self.inSelection = true;
-        };
-        Editor.dragRect = function (e, self) {
-            if (self.inSelection) {
-                var pt = Cam.RelPos(e.clientX, e.clientY, self.canvas);
-                self.selEnd = pt;
-                Editor.beginDraw(self);
-            }
-        };
-        Editor.endRect = function (e, self) {
-            self.inSelection = false;
-        };
-        Editor.DrawRectOnCanvas = function (hDC, self) {
-            var r = Cam.Points2Rect(self.selStart, self.selEnd);
-            hDC.beginPath();
-            hDC.rect(r.x, r.y, r.width, r.height);
-            hDC.stroke();
-        };
-        Editor.Client2BufferRect = function (client, self) {
-            var bufferWidth = self.originalImageData.width;
-            var bufferHeight = self.originalImageData.height;
-            var clientB = Cam.Rect2RectB(client);
-            var bufferP1 = Cam.Canvas2Buffer(clientB.left, clientB.top, self.region, bufferWidth, bufferHeight);
-            var bufferP2 = Cam.Canvas2Buffer(clientB.right, clientB.bot, self.region, bufferWidth, bufferHeight);
-            return Cam.Points2Rect(bufferP1, bufferP2);
-        };
-        Editor.CropHandler = function (self) {
-            var clientRect = Cam.Points2Rect(self.selStart, self.selEnd);
-            var boundingRect = self.region;
-            var clientCropped = Cam.ClipRect(clientRect, boundingRect);
-            var bufferCropped = Editor.Client2BufferRect(clientCropped, self);
-            Editor.StartGrabCut(bufferCropped, self);
-        };
-        Editor.beginDraw = function (self) {
-            console.log("redraw");
-            var _a = [self.canvas.scrollWidth, self.canvas.scrollHeight], srcWidth = _a[0], srcHeight = _a[1];
-            var _b = [self.canvas.width, self.canvas.height], bufferWidth = _b[0], bufferHeight = _b[1];
-            if (srcWidth != bufferWidth || srcHeight != bufferHeight) {
-                self.canvas.width = srcWidth;
-                self.canvas.height = srcHeight;
-            }
-            var hDC = self.canvas.getContext("2d");
-            hDC.clearRect(0, 0, srcWidth, srcHeight);
-            if (self.img != null) {
-                var _c = [self.originalImageData.width, self.originalImageData.height], imgWidth = _c[0], imgHeight = _c[1];
-                var coord = this.FitToRectangle(srcWidth, srcHeight, imgWidth, imgHeight);
-                self.region = coord;
-                hDC.drawImage(self.img, coord.x, coord.y, coord.width, coord.height);
-                hDC.beginPath();
-                hDC.rect(self.region.x, self.region.y, self.region.width, self.region.height);
-                hDC.stroke();
-            }
-            Editor.DrawRectOnCanvas(hDC, self);
-        };
-        Editor.FitToRectangle = function (maxWidth, maxHeight, imgWidth, imgHeight) {
-            var _a = [maxWidth / imgWidth, maxHeight / imgHeight], xScale = _a[0], yScale = _a[1];
-            var minScale = Math.min(xScale, yScale);
-            var scale = ((minScale) < 1) ? minScale : 1.0;
-            var w = imgWidth * scale;
-            var h = imgHeight * scale;
-            var x = (maxWidth - w) / 2;
-            var y = (maxHeight - h) / 2;
-            return { x: x, y: y, width: w, height: h };
-        };
-        Editor.loadImage = function (self) {
-            var img = new Image();
-            var fileURL = self.file.GetDataURL();
-            var _ = new Promise(function (resolve) {
-                img.onload = function () {
-                    var height = img.naturalHeight;
-                    var width = img.naturalWidth;
-                    resolve([height, width]);
-                };
-                img.src = fileURL;
-            }).then(function (dimensions) {
-                var tempCanvas = document.createElement("canvas");
-                tempCanvas.height = dimensions[0];
-                tempCanvas.width = dimensions[1];
-                var hDC = tempCanvas.getContext("2d");
-                hDC.drawImage(img, 0, 0);
-                self.originalImageData = hDC.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-            }).then(function () {
-                self.img = img;
-                Editor.beginDraw(self);
-            }).then(function () {
-                var _a = [self.originalImageData.width, self.originalImageData.height], width = _a[0], height = _a[1];
-                var margin = 0.2;
-                var x = Math.floor(width * margin);
-                var y = Math.floor(height * margin);
-                var w = Math.floor(width * (1 - 2 * margin));
-                var h = Math.floor(height * (1 - 2 * margin));
-            });
-        };
-        Editor.StartGrabCut = function (rect, self) {
-            var img = ImgUtil.ImageData2Mat(self.originalImageData);
-            var cut = new Cut.GrabCut(img);
-            var _a = [self.originalImageData.width, self.originalImageData.height], width = _a[0], height = _a[1];
-            var trimap = Util.Fill2DObj(height, width, function () { return Cut.Trimap.Background; });
-            var _b = [rect.x, rect.y, rect.width, rect.height].map(function (n) { return Math.floor(n); }), x = _b[0], y = _b[1], w = _b[2], h = _b[3];
-            Util.Fill2DRect(trimap, Cut.Trimap.Unknown, x, y, w, h);
-            cut.SetTrimap(trimap, width, height);
-            cut.BeginCrop();
-            var mask = cut.GetAlphaMask();
-            var maskPreview = ImgUtil.CreateBWImage(mask);
-            var previewWindow = document.getElementById("img-preview");
-            previewWindow.src = maskPreview;
-            previewWindow.style.width = width + "px";
-            previewWindow.style.height = height + "px";
-        };
-        return Editor;
-    }());
-    exports.Editor = Editor;
-});
-define("WebPage/Camera", ["require", "exports"], function (require, exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.FitToRectangle = exports.Canvas2Buffer = exports.Buffer2Canvas = exports.BufferRect2CanvasRect = exports.CanvasRect2BufferRect = exports.Points2Rect = exports.RelPos = exports.ClipRect = exports.RectB2Rect = exports.Rect2RectB = exports.origin = void 0;
-    exports.origin = { x: 0, y: 0 };
-    function Rect2RectB(rect) {
-        return {
-            left: rect.x,
-            right: rect.x + rect.width,
-            top: rect.y,
-            bot: rect.y + rect.height
-        };
-    }
-    exports.Rect2RectB = Rect2RectB;
-    function RectB2Rect(rectB) {
-        return {
-            x: rectB.left,
-            y: rectB.top,
-            width: rectB.right - rectB.left,
-            height: rectB.bot - rectB.top
-        };
-    }
-    exports.RectB2Rect = RectB2Rect;
-    function ClipRect(rect, boundary) {
-        var rectB = Rect2RectB(rect);
-        var boundaryB = Rect2RectB(boundary);
-        var clippedB = {
-            left: Math.max(rectB.left, boundaryB.left),
-            right: Math.min(rectB.right, boundaryB.right),
-            top: Math.max(rectB.top, boundaryB.top),
-            bot: Math.min(rectB.bot, boundaryB.bot)
-        };
-        return RectB2Rect(clippedB);
-    }
-    exports.ClipRect = ClipRect;
-    function RelPos(clientX, clientY, target) {
-        var boundingBox = target.getBoundingClientRect();
-        var relPoint = { x: clientX - boundingBox.x,
-            y: clientY - boundingBox.y };
-        return relPoint;
-    }
-    exports.RelPos = RelPos;
-    function Points2Rect(p1, p2) {
-        var _a = [Math.min(p1.y, p2.y), Math.min(p1.x, p2.x)], top = _a[0], left = _a[1];
-        var _b = [Math.max(p1.y, p2.y), Math.max(p1.x, p2.x)], bot = _b[0], right = _b[1];
-        var _c = [(bot - top), (right - left)], height = _c[0], width = _c[1];
-        return {
-            x: left,
-            y: top,
-            width: width,
-            height: height
-        };
-    }
-    exports.Points2Rect = Points2Rect;
-    function CanvasRect2BufferRect(canvasRect, drawRegion, bufferWidth, bufferHeight) {
-        var cRectB = Rect2RectB(canvasRect);
-        var bufferTop = Canvas2Buffer(cRectB.left, cRectB.top, drawRegion, bufferWidth, bufferHeight);
-        var bufferBot = Canvas2Buffer(cRectB.right, cRectB.bot, drawRegion, bufferWidth, bufferHeight);
-        return Points2Rect(bufferTop, bufferBot);
-    }
-    exports.CanvasRect2BufferRect = CanvasRect2BufferRect;
-    function BufferRect2CanvasRect(bufferRect, bufferWidth, bufferHeight, clientRegion) {
-        var bufferRectB = Rect2RectB(bufferRect);
-        var canvasTop = Buffer2Canvas(bufferRectB.left, bufferRectB.top, bufferWidth, bufferHeight, clientRegion);
-        var canvasBot = Buffer2Canvas(bufferRectB.right, bufferRectB.bot, bufferWidth, bufferHeight, clientRegion);
-        return Points2Rect(canvasTop, canvasBot);
-    }
-    exports.BufferRect2CanvasRect = BufferRect2CanvasRect;
-    function Buffer2Canvas(bufferX, bufferY, bufferWidth, bufferHeight, clientRegion) {
-        var _a = [bufferX / bufferWidth, bufferY / bufferHeight], xFrac = _a[0], yFrac = _a[1];
-        var clientX = clientRegion.x + xFrac * clientRegion.width;
-        var clientY = clientRegion.y + yFrac * clientRegion.height;
-        return { x: clientX, y: clientY };
-    }
-    exports.Buffer2Canvas = Buffer2Canvas;
-    function Canvas2Buffer(clientX, clientY, clientRegion, bufferWidth, bufferHeight) {
-        var bufferX = ((clientX - clientRegion.x) / clientRegion.width) * bufferWidth;
-        var bufferY = ((clientY - clientRegion.y) / clientRegion.height) * bufferHeight;
-        return { x: bufferX, y: bufferY };
-    }
-    exports.Canvas2Buffer = Canvas2Buffer;
-    function FitToRectangle(maxWidth, maxHeight, imgWidth, imgHeight) {
-        var _a = [maxWidth / imgWidth, maxHeight / imgHeight], xScale = _a[0], yScale = _a[1];
-        var minScale = Math.min(xScale, yScale);
-        var scale = ((minScale) < 1) ? minScale : 1.0;
-        var w = imgWidth * scale;
-        var h = imgHeight * scale;
-        var x = (maxWidth - w) / 2;
-        var y = (maxHeight - h) / 2;
-        return { x: x, y: y, width: w, height: h };
-    }
-    exports.FitToRectangle = FitToRectangle;
-});
-define("WebPage/View", ["require", "exports", "WebPage/Camera"], function (require, exports, Cam) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.CanvasView = void 0;
-    var CanvasView = (function () {
-        function CanvasView(drawable) {
-            this.canvas = drawable;
-            window.addEventListener("resize", this.Draw.bind(this));
-        }
-        CanvasView.prototype.AttachModel = function (model) {
-            this.model = model;
-        };
-        CanvasView.prototype.GetDrawRegion = function () {
-            return this.drawRegion;
-        };
-        CanvasView.prototype.Draw = function () {
-            console.log("redraw");
-            this.ResizeBufferToClientSize();
-            var _a = [this.canvas.width, this.canvas.height], width = _a[0], height = _a[1];
-            var hDC = this.canvas.getContext("2d");
-            var img = this.model.GetOriginalImage();
-            hDC.clearRect(0, 0, width, height);
-            if (img != null) {
-                var imgData = this.model.GetImageData();
-                var _b = [imgData.width, imgData.height], imgWidth = _b[0], imgHeight = _b[1];
-                var coord = Cam.FitToRectangle(width, height, imgWidth, imgHeight);
-                this.drawRegion = coord;
-                hDC.drawImage(img, coord.x, coord.y, coord.width, coord.height);
-            }
-            this.DrawSelectionRectOnCanvas(hDC);
-        };
-        CanvasView.prototype.DrawSelectionRectOnCanvas = function (hDC) {
-            var region = this.model.GetSelectedRegion();
-            if (region != null) {
-                var imgData = this.model.GetImageData();
-                var clientRect = Cam.BufferRect2CanvasRect(region, imgData.width, imgData.height, this.drawRegion);
-                hDC.beginPath();
-                hDC.rect(clientRect.x, clientRect.y, clientRect.width, clientRect.height);
-                hDC.stroke();
-            }
-        };
-        CanvasView.prototype.ResizeBufferToClientSize = function () {
-            var _a = [this.canvas.scrollWidth, this.canvas.scrollHeight], srcWidth = _a[0], srcHeight = _a[1];
-            var _b = [this.canvas.width, this.canvas.height], bufferWidth = _b[0], bufferHeight = _b[1];
-            if (srcWidth != bufferWidth || srcHeight != bufferHeight) {
-                this.canvas.width = srcWidth;
-                this.canvas.height = srcHeight;
-            }
-        };
-        return CanvasView;
-    }());
-    exports.CanvasView = CanvasView;
-});
 define("WebPage/PreviewView", ["require", "exports", "WebPage/ImageUtil"], function (require, exports, IMUtil) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -1761,16 +1645,163 @@ define("WebPage/PreviewView", ["require", "exports", "WebPage/ImageUtil"], funct
     }());
     exports.PreviewView = PreviewView;
 });
+define("WebPage/Editor", ["require", "exports", "WebPage/Camera"], function (require, exports, Cam) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.SegmentDrawCall = exports.InvertedRectDrawCall = exports.HollowRectDrawCall = void 0;
+    var HollowRectDrawCall = (function () {
+        function HollowRectDrawCall(colour, width) {
+            this.rect = null;
+            this.colour = colour;
+            this.width = width;
+        }
+        HollowRectDrawCall.prototype.SetPoints = function (p1, p2) {
+            this.rect = Cam.Points2Rect(p1, p2);
+        };
+        HollowRectDrawCall.prototype.Draw = function (hDC) {
+            if (this.rect == null)
+                return;
+            hDC.beginPath();
+            hDC.strokeStyle = this.colour;
+            hDC.lineWidth = this.width;
+            var r = this.rect;
+            hDC.rect(r.x, r.y, r.width, r.height);
+            hDC.stroke();
+        };
+        HollowRectDrawCall.prototype.Transform = function (srcDim, destDim) {
+            var scale = Cam.GetScale(srcDim, destDim);
+            var scaledWidth = this.width * scale;
+            var transformed = new HollowRectDrawCall(this.colour, scaledWidth);
+            transformed.rect = Cam.TransformRect(this.rect, srcDim, destDim);
+            return transformed;
+        };
+        return HollowRectDrawCall;
+    }());
+    exports.HollowRectDrawCall = HollowRectDrawCall;
+    var InvertedRectDrawCall = (function () {
+        function InvertedRectDrawCall(colour) {
+            this.rect = null;
+            this.colour = colour;
+        }
+        InvertedRectDrawCall.prototype.SetPoints = function (p1, p2) {
+            this.rect = Cam.Points2Rect(p1, p2);
+        };
+        InvertedRectDrawCall.prototype.Draw = function (hDC) {
+            if (this.rect == null)
+                return;
+            var _a = [hDC.canvas.width, hDC.canvas.height], width = _a[0], height = _a[1];
+            var rectB = Cam.Rect2RectB(this.rect);
+            var leftRect = Cam.Points2Rect({ x: 0, y: 0 }, { x: rectB.left, y: height });
+            var rightRect = Cam.Points2Rect({ x: rectB.right, y: 0 }, { x: width, y: height });
+            var topRect = Cam.Points2Rect({ x: rectB.left, y: 0 }, { x: rectB.right, y: rectB.top });
+            var botRect = Cam.Points2Rect({ x: rectB.left, y: rectB.bot }, { x: rectB.right, y: height });
+            var drawRect = function (r) { return hDC.fillRect(r.x, r.y, r.width, r.height); };
+            hDC.beginPath();
+            hDC.fillStyle = this.colour;
+            drawRect(leftRect);
+            drawRect(rightRect);
+            drawRect(topRect);
+            drawRect(botRect);
+            hDC.stroke();
+        };
+        InvertedRectDrawCall.prototype.Transform = function (srcDim, destDim) {
+            var transformed = new InvertedRectDrawCall(this.colour);
+            transformed.rect = Cam.TransformRect(this.rect, srcDim, destDim);
+            return transformed;
+        };
+        return InvertedRectDrawCall;
+    }());
+    exports.InvertedRectDrawCall = InvertedRectDrawCall;
+    var SegmentDrawCall = (function () {
+        function SegmentDrawCall(start, width, colour, erase) {
+            this.segments = [];
+            this.widths = [];
+            this.segments.push(start);
+            this.widths.push(width);
+            this.colour = colour;
+            this.erase = erase;
+        }
+        SegmentDrawCall.prototype.AddEndPoint = function (next, width) {
+            this.segments.push(next);
+            this.widths.push(width);
+        };
+        SegmentDrawCall.prototype.Draw = function (hDC) {
+            if (this.segments.length == 0)
+                return;
+            var originalCompositingMode = hDC.globalCompositeOperation;
+            if (this.erase) {
+                hDC.globalCompositeOperation = "destination-out";
+            }
+            hDC.beginPath();
+            hDC.lineCap = "round";
+            hDC.strokeStyle = this.colour;
+            hDC.moveTo(this.segments[0].x, this.segments[0].y);
+            hDC.lineWidth = this.widths[0];
+            for (var i = 1; i < this.segments.length; i++) {
+                var seg = this.segments[i];
+                hDC.lineTo(seg.x, seg.y);
+                hDC.lineWidth = this.widths[i];
+            }
+            hDC.stroke();
+            hDC.globalCompositeOperation = originalCompositingMode;
+        };
+        SegmentDrawCall.prototype.Transform = function (srcDim, destDim) {
+            var transformed = new SegmentDrawCall(null, null, this.colour, this.erase);
+            var scale = Cam.GetScale(srcDim, destDim);
+            transformed.widths = this.widths.map(function (w) { return w * scale; });
+            transformed.segments = this.segments.map(function (seg) { return Cam.Transform2D(seg, srcDim, destDim); });
+            return transformed;
+        };
+        return SegmentDrawCall;
+    }());
+    exports.SegmentDrawCall = SegmentDrawCall;
+});
 define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "Utility"], function (require, exports, Cut, ImgUtil, Util) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.Model = void 0;
+    exports.Model = exports.BGColour = exports.FGColour = void 0;
+    exports.FGColour = new ImgUtil.RGBA(255, 0, 0, 255);
+    exports.BGColour = new ImgUtil.RGBA(0, 0, 255, 255);
     var Model = (function () {
         function Model() {
-            this.selectedRegion = null;
             this.croppedImage = null;
             this.croppedImageAlpha = null;
+            this.canvasDrawOps = [];
+            this.pendingDrawOps = null;
         }
+        Model.prototype.BeginDrawCall = function (call) {
+            this.pendingDrawOps = call;
+            this.TriggerCanvasRedraw();
+        };
+        Model.prototype.UpdateDrawCall = function (call, finalize) {
+            if (finalize === void 0) { finalize = false; }
+            if (!finalize) {
+                this.pendingDrawOps = call;
+            }
+            else {
+                this.pendingDrawOps = null;
+                this.canvasDrawOps.push(call);
+            }
+            this.TriggerCanvasRedraw();
+        };
+        Model.prototype.UndoLast = function () {
+            if (this.pendingDrawOps != null) {
+                this.pendingDrawOps = null;
+            }
+            else {
+                if (this.canvasDrawOps.length == 0)
+                    return;
+                this.canvasDrawOps.pop();
+            }
+            this.TriggerCanvasRedraw();
+        };
+        Model.prototype.GetDrawOps = function (coordinateSpace) {
+            var last = (this.pendingDrawOps == null) ? [] : [this.pendingDrawOps];
+            var merged = this.canvasDrawOps.concat(last);
+            var _a = this.GetImageDim(), width = _a[0], height = _a[1];
+            var bufferDim = { x: 0, y: 0, width: width, height: height };
+            return merged.map(function (drawOp) { return drawOp.Transform(bufferDim, coordinateSpace); });
+        };
         Model.prototype.TriggerCanvasRedraw = function () {
             this.canvasView.Draw();
         };
@@ -1780,15 +1811,15 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
         Model.prototype.AttachPreviewView = function (preview) {
             this.preview = preview;
         };
-        Model.prototype.SetSelectedRegion = function (region) {
-            this.selectedRegion = region;
-            this.TriggerCanvasRedraw();
+        Model.prototype.ClearSelection = function () {
+            this.pendingDrawOps = null;
+            this.canvasDrawOps = [];
         };
         Model.prototype.SetImage = function (imageURL) {
             var _this = this;
+            this.ClearSelection();
             this.croppedImage = null;
             this.croppedImageAlpha = null;
-            this.selectedRegion = null;
             var img = new Image();
             var fileURL = imageURL;
             var _ = new Promise(function (resolve) {
@@ -1813,14 +1844,12 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
         Model.prototype.GetImageDim = function () {
             return [this.originalImage.width, this.originalImageData.height];
         };
-        Model.prototype.GetSelectedRegion = function () {
-            return this.selectedRegion;
+        Model.prototype.GetCoordSystem = function () {
+            var _a = this.GetImageDim(), width = _a[0], height = _a[1];
+            return { x: 0, y: 0, width: width, height: height };
         };
         Model.prototype.GetOriginalImage = function () {
             return this.originalImage;
-        };
-        Model.prototype.GetImageData = function () {
-            return this.originalImageData;
         };
         Model.prototype.GetCroppedImageURL = function (alphaOnly) {
             if (alphaOnly)
@@ -1828,14 +1857,43 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
             else
                 return this.croppedImage;
         };
+        Model.prototype.GetTrimap = function () {
+            var _a = this.GetImageDim(), width = _a[0], height = _a[1];
+            var tempCanvas = new ImgUtil.Temp2DCanvas(width, height);
+            var hDC = tempCanvas.GetHDC();
+            var ops = this.GetDrawOps(this.GetCoordSystem());
+            ops.forEach(function (op) { return op.Draw(hDC); });
+            var imgData = tempCanvas.GetImageData();
+            var trimap = Util.Fill2DObj(height, width, function () { return Cut.Trimap.Unknown; });
+            var arr = imgData.data;
+            for (var y = 0; y < height; y++) {
+                for (var x = 0; x < width; x++) {
+                    var offset = (y * width + x) * 4;
+                    var r = arr[offset + 0];
+                    var g = arr[offset + 1];
+                    var b = arr[offset + 2];
+                    var a = arr[offset + 3];
+                    var pixelColour = new ImgUtil.RGBA(r, g, b, a);
+                    var trimapValue = void 0;
+                    if (pixelColour.Equals(exports.FGColour)) {
+                        trimapValue = Cut.Trimap.Foreground;
+                    }
+                    else if (pixelColour.Equals(exports.BGColour)) {
+                        trimapValue = Cut.Trimap.Background;
+                    }
+                    else {
+                        trimapValue = Cut.Trimap.Unknown;
+                    }
+                    trimap[y][x] = trimapValue;
+                }
+            }
+            return trimap;
+        };
         Model.prototype.StartGrabCut = function () {
+            var _a = this.GetImageDim(), width = _a[0], height = _a[1];
             var img = ImgUtil.ImageData2Mat(this.originalImageData);
             var cut = new Cut.GrabCut(img);
-            var _a = [this.originalImageData.width, this.originalImageData.height], width = _a[0], height = _a[1];
-            var trimap = Util.Fill2DObj(height, width, function () { return Cut.Trimap.Background; });
-            var selected = this.selectedRegion;
-            var _b = [selected.x, selected.y, selected.width, selected.height].map(function (n) { return Math.floor(n); }), x = _b[0], y = _b[1], w = _b[2], h = _b[3];
-            Util.Fill2DRect(trimap, Cut.Trimap.Unknown, x, y, w, h);
+            var trimap = this.GetTrimap();
             cut.SetTrimap(trimap, width, height);
             cut.BeginCrop();
             var mask = cut.GetAlphaMask();
@@ -1847,21 +1905,162 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
     }());
     exports.Model = Model;
 });
-define("WebPage/Controller", ["require", "exports", "WebPage/Camera"], function (require, exports, Cam) {
+define("WebPage/CanvasView", ["require", "exports", "WebPage/Camera"], function (require, exports, Cam) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.CanvasView = void 0;
+    var CanvasView = (function () {
+        function CanvasView(imgCanvas, editingCanvas) {
+            this.imgCanvas = imgCanvas;
+            this.editingCanvas = editingCanvas;
+            window.addEventListener("resize", this.Draw.bind(this));
+        }
+        CanvasView.prototype.AttachModel = function (model) {
+            this.model = model;
+        };
+        CanvasView.prototype.GetDrawRegion = function () {
+            return this.drawRegion;
+        };
+        CanvasView.prototype.Draw = function () {
+            console.log("redraw");
+            CanvasView.ResizeBufferToClientSize(this.editingCanvas);
+            CanvasView.ResizeBufferToClientSize(this.imgCanvas);
+            var _a = [this.imgCanvas.width, this.imgCanvas.height], width = _a[0], height = _a[1];
+            var imgHDC = this.imgCanvas.getContext("2d");
+            var editHDC = this.editingCanvas.getContext("2d");
+            var img = this.model.GetOriginalImage();
+            imgHDC.clearRect(0, 0, width, height);
+            editHDC.clearRect(0, 0, width, height);
+            if (img == null)
+                return;
+            var _b = this.model.GetImageDim(), imgWidth = _b[0], imgHeight = _b[1];
+            var coord = Cam.FitToRectangle(width, height, imgWidth, imgHeight);
+            this.drawRegion = coord;
+            imgHDC.drawImage(img, coord.x, coord.y, coord.width, coord.height);
+            editHDC.save();
+            var clipRegion = new Path2D();
+            clipRegion.rect(coord.x, coord.y, coord.width, coord.height);
+            editHDC.clip(clipRegion);
+            var drawOps = this.model.GetDrawOps(this.GetDrawRegion());
+            drawOps.forEach(function (d) {
+                d.Draw(editHDC);
+            });
+            editHDC.restore();
+        };
+        CanvasView.ResizeBufferToClientSize = function (canvas) {
+            var _a = [canvas.scrollWidth, canvas.scrollHeight], srcWidth = _a[0], srcHeight = _a[1];
+            var _b = [canvas.width, canvas.height], bufferWidth = _b[0], bufferHeight = _b[1];
+            if (srcWidth != bufferWidth || srcHeight != bufferHeight) {
+                canvas.width = srcWidth;
+                canvas.height = srcHeight;
+            }
+        };
+        return CanvasView;
+    }());
+    exports.CanvasView = CanvasView;
+});
+define("WebPage/ToolHandler", ["require", "exports", "WebPage/Editor", "WebPage/Camera"], function (require, exports, Ed, Cam) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.SegmentToolHandler = exports.InvertedRectToolHandler = exports.HollowRectToolHandler = void 0;
+    var HollowRectToolHandler = (function () {
+        function HollowRectToolHandler(colour, width) {
+            var _this = this;
+            if (colour === void 0) { colour = "red"; }
+            if (width === void 0) { width = 2; }
+            this.selStart = Cam.origin;
+            this.selEnd = Cam.origin;
+            this.rect = new Ed.HollowRectDrawCall(colour, width);
+            [this.MouseDown, this.MouseDrag, this.MouseUp].forEach(function (fn) { return fn.bind(_this); });
+        }
+        HollowRectToolHandler.prototype.MouseDown = function (canvasPoint) {
+            this.selStart = this.selEnd = canvasPoint;
+            return this.UpdateRect();
+        };
+        HollowRectToolHandler.prototype.MouseDrag = function (canvasPoint) {
+            this.selEnd = canvasPoint;
+            return this.UpdateRect();
+        };
+        HollowRectToolHandler.prototype.MouseUp = function (canvasPoint) {
+            this.selEnd = canvasPoint;
+            return this.UpdateRect();
+        };
+        HollowRectToolHandler.prototype.UpdateRect = function () {
+            this.rect.SetPoints(this.selStart, this.selEnd);
+            return this.rect;
+        };
+        return HollowRectToolHandler;
+    }());
+    exports.HollowRectToolHandler = HollowRectToolHandler;
+    var InvertedRectToolHandler = (function () {
+        function InvertedRectToolHandler(colour) {
+            var _this = this;
+            this.p1 = Cam.origin;
+            this.p2 = Cam.origin;
+            this.invertedRect = null;
+            this.invertedRect = new Ed.InvertedRectDrawCall(colour);
+            [this.MouseDown, this.MouseDrag, this.MouseUp].forEach(function (fn) { return fn.bind(_this); });
+        }
+        InvertedRectToolHandler.prototype.MouseDown = function (canvasPoint) {
+            this.p1 = this.p2 = canvasPoint;
+            return this.GenRect();
+        };
+        InvertedRectToolHandler.prototype.MouseDrag = function (canvasPoint) {
+            this.p2 = canvasPoint;
+            return this.GenRect();
+        };
+        InvertedRectToolHandler.prototype.MouseUp = function (canvasPoint) {
+            this.p2 = canvasPoint;
+            return this.GenRect();
+        };
+        InvertedRectToolHandler.prototype.GenRect = function () {
+            this.invertedRect.SetPoints(this.p1, this.p2);
+            return this.invertedRect;
+        };
+        return InvertedRectToolHandler;
+    }());
+    exports.InvertedRectToolHandler = InvertedRectToolHandler;
+    var SegmentToolHandler = (function () {
+        function SegmentToolHandler(width, colour, erase) {
+            var _this = this;
+            this.segment = null;
+            this.width = width;
+            this.colour = colour;
+            this.erase = erase;
+            [this.MouseDown, this.MouseDrag, this.MouseUp].forEach(function (fn) { return fn.bind(_this); });
+        }
+        SegmentToolHandler.prototype.MouseDown = function (canvasPoint) {
+            this.segment = new Ed.SegmentDrawCall(canvasPoint, this.width, this.colour, this.erase);
+            return this.segment;
+        };
+        SegmentToolHandler.prototype.MouseDrag = function (canvasPoint) {
+            this.segment.AddEndPoint(canvasPoint, this.width);
+            return this.segment;
+        };
+        SegmentToolHandler.prototype.MouseUp = function (canvasPoint) {
+            this.segment.AddEndPoint(canvasPoint, this.width);
+            return this.segment;
+        };
+        return SegmentToolHandler;
+    }());
+    exports.SegmentToolHandler = SegmentToolHandler;
+});
+define("WebPage/Controller", ["require", "exports", "WebPage/Camera", "WebPage/Model", "WebPage/ToolHandler"], function (require, exports, Cam, Model_1, Tools) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.Controller = void 0;
     var Controller = (function () {
-        function Controller(file, canvas, cropBtn) {
-            this.selStart = Cam.origin;
-            this.selEnd = Cam.origin;
-            this.inSelection = false;
+        function Controller(file, canvas, cropBtn, brushRadioBtns, radiusRange) {
+            this.toolHandler = null;
             this.file = file;
             this.canvas = canvas;
             this.cropBtn = cropBtn;
-            canvas.addEventListener("mousedown", this.beginRect.bind(this));
-            canvas.addEventListener("mousemove", this.dragRect.bind(this));
-            canvas.addEventListener("mouseup", this.endRect.bind(this));
+            this.brushRadioBtns = brushRadioBtns;
+            this.radiusRange = radiusRange;
+            canvas.addEventListener("mousedown", this.begin.bind(this));
+            canvas.addEventListener("mousemove", this.drag.bind(this));
+            canvas.addEventListener("mouseup", this.end.bind(this));
+            document.addEventListener("keydown", this.Undo.bind(this));
             cropBtn.addEventListener("click", this.triggerGrabCut.bind(this));
         }
         Controller.prototype.AttachView = function (canvasView) {
@@ -1869,7 +2068,6 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Camera"], function 
         };
         Controller.prototype.AttachModel = function (model) {
             var _this = this;
-            console.log(this);
             this.model = model;
             this.file.RegisterImageLoad(function () {
                 _this.model.SetImage(_this.file.GetDataURL());
@@ -1878,47 +2076,83 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Camera"], function 
         Controller.prototype.triggerGrabCut = function () {
             this.model.StartGrabCut();
         };
-        Controller.prototype.beginRect = function (e) {
-            var start = Cam.RelPos(e.clientX, e.clientY, this.canvas);
-            this.selStart = start;
-            this.selEnd = start;
-            this.inSelection = true;
+        Controller.prototype.GetSelectedBrush = function () {
+            var _this = this;
+            var brushRadius = parseFloat(this.radiusRange.value);
+            var invertedRectFactory = function () { return new Tools.InvertedRectToolHandler(Model_1.BGColour.CSSValue()); };
+            var fgSegmentHandlerFactory = function () { return new Tools.SegmentToolHandler(brushRadius, Model_1.FGColour.CSSValue(), false); };
+            var bgSegmentHandlerFactory = function () { return new Tools.SegmentToolHandler(brushRadius, Model_1.BGColour.CSSValue(), false); };
+            var eraseHandlerFactory = function () { return new Tools.SegmentToolHandler(brushRadius, "white", true); };
+            var nil = function () { };
+            var clearAllSelections = function () { return _this.model.ClearSelection(); };
+            var actionMappings = [
+                { name: "fg-rect", drawHandlerFactory: invertedRectFactory, init: clearAllSelections },
+                { name: "fg", drawHandlerFactory: fgSegmentHandlerFactory, init: nil },
+                { name: "bg", drawHandlerFactory: bgSegmentHandlerFactory, init: nil },
+                { name: "erase", drawHandlerFactory: eraseHandlerFactory, init: nil }
+            ];
+            var selected = this.brushRadioBtns.find(function (btn) { return btn.checked; });
+            var actions = actionMappings.find(function (t) { return t.name == selected.value; });
+            return actions;
         };
-        Controller.prototype.dragRect = function (e) {
-            if (this.inSelection) {
-                var pt = Cam.RelPos(e.clientX, e.clientY, this.canvas);
-                this.selEnd = pt;
-                this.UpdateModelSelectionRect();
+        Controller.prototype.Undo = function (e) {
+            if (e.ctrlKey && e.key == "z") {
+                this.model.UndoLast();
             }
         };
-        Controller.prototype.endRect = function () {
-            this.inSelection = false;
+        Controller.prototype.Screen2Buffer = function (canvasPoint) {
+            var _a = this.model.GetImageDim(), bufferWidth = _a[0], bufferHeight = _a[1];
+            var bufferDim = { x: 0, y: 0, width: bufferWidth, height: bufferHeight };
+            var canvasDim = this.canvasView.GetDrawRegion();
+            return Cam.Transform2D(canvasPoint, canvasDim, bufferDim);
         };
-        Controller.prototype.UpdateModelSelectionRect = function () {
-            var newRegion = Cam.Points2Rect(this.selStart, this.selEnd);
-            var bufferData = this.model.GetImageData();
-            var drawRegion = this.canvasView.GetDrawRegion();
-            var bufferSpaceSelectionRegion = Cam.CanvasRect2BufferRect(newRegion, drawRegion, bufferData.width, bufferData.height);
-            this.model.SetSelectedRegion(bufferSpaceSelectionRegion);
+        Controller.prototype.begin = function (e) {
+            var canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
+            var start = this.Screen2Buffer(canvasPoint);
+            var initActions = this.GetSelectedBrush();
+            initActions.init();
+            this.toolHandler = initActions.drawHandlerFactory();
+            var drawCall = this.toolHandler.MouseDown(start);
+            this.model.BeginDrawCall(drawCall);
+        };
+        Controller.prototype.drag = function (e) {
+            if (this.toolHandler == null)
+                return;
+            var canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
+            var point = this.Screen2Buffer(canvasPoint);
+            var drawCall = this.toolHandler.MouseDrag(point);
+            this.model.UpdateDrawCall(drawCall, false);
+        };
+        Controller.prototype.end = function (e) {
+            if (this.toolHandler == null)
+                return;
+            var canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
+            var point = this.Screen2Buffer(canvasPoint);
+            var drawCall = this.toolHandler.MouseUp(point);
+            this.model.UpdateDrawCall(drawCall, true);
+            this.toolHandler = null;
         };
         return Controller;
     }());
     exports.Controller = Controller;
 });
-define("WebPage/PageMain", ["require", "exports", "WebPage/FileInput", "WebPage/View", "WebPage/Model", "WebPage/Controller", "WebPage/PreviewView"], function (require, exports, FileInput_1, View_1, Model_1, Controller_1, PreviewView_1) {
+define("WebPage/PageMain", ["require", "exports", "WebPage/FileInput", "WebPage/CanvasView", "WebPage/Model", "WebPage/Controller", "WebPage/PreviewView"], function (require, exports, FileInput_1, CanvasView_1, Model_2, Controller_1, PreviewView_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    var canvas = document.getElementById("canvas-main");
+    var imgCanvas = document.getElementById("canvas-main");
+    var editCanvas = document.getElementById("canvas-top");
     var cropBtn = document.getElementById("btn-crop");
     var previewImg = document.getElementById("img-preview");
     var btnAlpha = document.getElementById("btn-alpha");
     var btnImage = document.getElementById("btn-img");
     var download = document.getElementById("a-download");
+    var radiusRange = document.getElementById("range-brush-size");
+    var brushRadioBtns = Array.from(document.getElementsByName("brush"));
     var file = new FileInput_1.FileInput("file-image");
-    var view = new View_1.CanvasView(canvas);
+    var view = new CanvasView_1.CanvasView(imgCanvas, editCanvas);
     var previewView = new PreviewView_1.PreviewView(previewImg, btnAlpha, btnImage, download);
-    var model = new Model_1.Model();
-    var controller = new Controller_1.Controller(file, canvas, cropBtn);
+    var model = new Model_2.Model();
+    var controller = new Controller_1.Controller(file, imgCanvas, cropBtn, brushRadioBtns, radiusRange);
     view.AttachModel(model);
     previewView.AttachModel(model);
     previewView.AttachEditorView(view);
