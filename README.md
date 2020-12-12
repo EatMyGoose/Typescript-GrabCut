@@ -5,13 +5,13 @@ Implementation of GrabCut written from scratch in Typescript. Should run within 
 Grabcut is a cropping algorithm that tries to extract an object from its background with minimal user input.
 </p>
 <p>
-Its working principles are based on combining the analysis of likely colours in the foreground an background, as well as detecting edges (sharp transistions in colours) within the image. 
+Its working principles are based on combining the analysis of likely colours in the foreground and background, as well as detecting edges (sharp transitions in colours) within the image. 
 These 2 bundles of information are translated into flow capacities in a flow network where the result of the minimum cut is used to determine the cropped image.
 </p>
 
 <img src="Images/Demo.png"></img>
 
-Potentially useful tidbits you might find in this project - Typescript implementations of:
+Potentially useful titbits you might find in this project - Typescript implementations of:
 <ul>
 <li>Dinic's max-flow/min cut algorithm</li>
 <li>KMeans++ and GMM clustering algorithms</li>
