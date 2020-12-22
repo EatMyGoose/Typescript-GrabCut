@@ -1,7 +1,13 @@
+//TODO: test out BK's min cut algorithm
+//Implement factory pattern to allow for the selection of different solvers here.
+
 import * as GMM from "./GMM";
-import * as Graph from "./Graph";
+import * as Dinic from "./DinicFlowSolver";
+import * as BK from "./BKGraph";
+import * as FlowBase from "./FlowNetworkSolver";
 import * as Mat from "./Matrix";
 import * as Util from "./Utility";
+
 
 export enum Trimap{
     Background = 0,
@@ -46,18 +52,21 @@ export class GrabCut{
         let [fgPixels, bgPixels] = GrabCut.SegregatePixels(this.img, this.matte, 0,0, this.height, this.width);
 
         //Initial color GMMs
-        const GMM_N_ITER = 3;
+        const GMM_N_ITER = 5;
         this.fgGMM.Fit(fgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
         this.bgGMM.Fit(bgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
 
-        let MAX_ITER = 1;
+        let MAX_ITER = 3;
         this.RunIterations(MAX_ITER);
     }
 
     RunIterations(nIter:number){
         //Create network graph (with edges between neighbouring pixels set)
         //Clone this network & populate with source and sink for use in the graphcut.
-        let [networkBase, maxCapacity] = GrabCut.GeneratePixel2PixelGraph(this.img);
+        let flowNetwork:FlowBase.IFlowNetwork = new BK.BKNetwork();
+        let maxFlowSolver:FlowBase.IMaxFlowSolver = BK.BKMaxflow;
+
+        let [networkBase, maxCapacity] = GrabCut.GeneratePixel2PixelGraph(this.img, flowNetwork);
 
         for(let iter = 0; iter < nIter; iter++){
             console.log(`iter:${iter}`);
@@ -76,14 +85,15 @@ export class GrabCut{
             });
             console.log(`fg clusters:${this.fgGMM.clusters.length}, bg clusters:${this.bgGMM.clusters.length}`);
 
-            let networkCopy = Graph.Network.Clone(networkBase);
+            let networkCopy = networkBase.Clone();
             
             let [fullGraph, source, sink] = GrabCut.AddSourceAndSink(networkCopy, maxCapacity, this.fgGMM, this.bgGMM, this.img, this.trimap);
             
             console.log('max flow');
-            let levelGraph = Graph.DinicMaxFlow(fullGraph, source, sink); 
+            let flowResult = maxFlowSolver(source, sink, fullGraph);
+
             console.log('cut');
-            let fgPixelIndices = Graph.MinCut(fullGraph, source, sink, levelGraph).nodeList;
+            let fgPixelIndices = flowResult.GetSourcePartition();
             
             GrabCut.UpdateMatte(this.matte, this.trimap, fgPixelIndices);
         }     
@@ -175,8 +185,7 @@ export class GrabCut{
     //TODO: Clone this network so it can be reused between iterations
     //Pixel to pixel edge capacities do not change
     //Returns the resultant network and the highest edge capacity
-    private static GeneratePixel2PixelGraph(img:Mat.Matrix[][]): [Graph.Network, number]{
-        let network:Graph.Network = new Graph.Network();
+    private static GeneratePixel2PixelGraph(img:Mat.Matrix[][], network:FlowBase.IFlowNetwork): [FlowBase.IFlowNetwork, number]{
 
         let height = img.length;
         let width = img[0].length;
@@ -234,10 +243,10 @@ export class GrabCut{
     //Returns the new network, with the edges connecting the source (FG) and sink (BG) to the pixels added
     //[network, sourceNodeIndex, sinkNodeIndex]
     private static AddSourceAndSink(
-        network:Graph.Network, maxCap:number,
+        network:FlowBase.IFlowNetwork, maxCap:number,
         gmmFG: GMM.GMM, gmmBG: GMM.GMM,
         image:Mat.Matrix[][],
-        trimap: Uint8Array): [Graph.Network, number, number]{
+        trimap: Uint8Array): [FlowBase.IFlowNetwork, number, number]{
 
         let [nRows, nCols] = [image.length, image[0].length];
 

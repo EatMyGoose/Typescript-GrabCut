@@ -1,5 +1,6 @@
 import * as Util from './Utility'
 import * as DS from './Collections'
+import * as FlowBase from "./FlowNetworkSolver"
 
 export class Edge{
     source:number;
@@ -27,7 +28,7 @@ export class GraphNode{
     }
 }
 
-export class Network{
+export class DinicNetwork implements FlowBase.IFlowNetwork{
     nodeList: GraphNode[]; 
     edgeList: Edge[]; //Every second edge will be a reverse edge.
     
@@ -56,9 +57,9 @@ export class Network{
         return count;
     }
 
-    static Clone(original:Network):Network{
-        let srcEdges = original.edgeList;
-        let srcNodes = original.nodeList;
+    Clone():DinicNetwork{
+        let srcEdges = this.edgeList;
+        let srcNodes = this.nodeList;
         //Copy edge list
         let newEdges = srcEdges.map(s => {
             let copy = new Edge(s.source, s.sink, s.capacity, s.id);
@@ -76,7 +77,7 @@ export class Network{
                 newNodes[i].edges.push(edgeDict.Get(edgeID));
             });
         }
-        let n = new Network();
+        let n = new DinicNetwork();
         n.edgeList = newEdges;
         n.nodeList = newNodes;
         return n;
@@ -88,14 +89,14 @@ let lGraph = 0;
 let fPath = 0;
 let nAugment = 0;
 
-function DinicLevelGraph(sinkID:number, sourceID:number, edges:Edge[], nodes:GraphNode[], visitedArr:DS.VisitedArray, levelGraph:number[]) : boolean{
+function DinicLevelGraph(sinkID:number, sourceID:number, nodes:GraphNode[], visitedArr:DS.VisitedArray, levelGraph:number[]) : boolean{
     lGraph++;
 
     Util.Memset<number>(levelGraph, -1);
     let [visited, visitedToken] = visitedArr.UpdateToken();
 
-    let nodeFrontier = new DS.Queue<number>(); 
-    let depthFrontier = new DS.Queue<number>();
+    let nodeFrontier = new DS.CircularBufferQueue<number>(); 
+    let depthFrontier = new DS.CircularBufferQueue<number>();
     nodeFrontier.Enqueue(sourceID);
     depthFrontier.Enqueue(0);
     visited[sourceID] = visitedToken;
@@ -108,11 +109,10 @@ function DinicLevelGraph(sinkID:number, sourceID:number, edges:Edge[], nodes:Gra
 
         let node = nodes[nodeID];
         let edges = node.edges;
-        let nEdges = edges.length;
 
         let nextDepth = depth + 1;
 
-        for(let i = 0; i < nEdges; i++){
+        for(let i = 0; i < edges.length; i++){
             let e:Edge = edges[i];
             
             if( (e.capacity - e.flow) > 0 && 
@@ -122,7 +122,7 @@ function DinicLevelGraph(sinkID:number, sourceID:number, edges:Edge[], nodes:Gra
                 nodeFrontier.Enqueue(e.sink);
                 depthFrontier.Enqueue(nextDepth);
             }
-        };
+        }
     }
 
     let pathFound:boolean = levelGraph[sinkID] != -1;
@@ -138,26 +138,25 @@ function DinicFindPath(sinkID:number, sourceID:number, nodes:GraphNode[], visite
 
     let stack:number[] = [];
     stack.push(sourceID);
+    visited[sourceID] = visitedToken;
 
     while(stack.length > 0){
-        let nodeID = stack[stack.length - 1];
-        //Mark as traversed, so it will be ignored in future searches if the dfs backtracks
-        visited[nodeID] = visitedToken; 
+        let nodeID = stack[stack.length - 1]; //peek
 
-        if(nodeID == sinkID) break;     //Found a path, terminate
+        if(nodeID == sinkID) break; //Found a path, terminate
 
         let edgeList = nodes[nodeID].edges;
-        let nEdges = edgeList.length;    
         let nodeFound = false;
 
-        for(let i = activeEdge[nodeID]; i < nEdges; i++){
+        for(let i = activeEdge[nodeID]; i < edgeList.length; i++){
             let e:Edge = edgeList[i];
             if( (levelGraph[nodeID] < levelGraph[e.sink]) && 
                 (e.capacity - e.flow > 0) &&
                 (visited[e.sink] != visitedToken)){
-
-                stack.push(e.sink);
+                
+                visited[e.sink] = visitedToken;
                 path[e.sink] = e.id;
+                stack.push(e.sink);
                 nodeFound = true;
                 //Only push one node within this level into the stack
                 //activeEdges will keep track of which node to search next
@@ -184,11 +183,11 @@ function DinicAugmentFlow(sinkID:number, sourceID:number, edges:Edge[], path:num
     const MAX_INT:number = 9007199254740991;
     //Find minimum flow
     let walk = sinkID; 
-    let minFlow = MAX_INT;
+    let bottleneck = MAX_INT;
     while(walk != sourceID){
         let edge = edges[path[walk]];
         let remainingCapacity = edge.capacity - edge.flow;
-        minFlow = Math.min(minFlow, remainingCapacity);
+        bottleneck = Math.min(bottleneck, remainingCapacity);
         walk = edge.source;
     }
 
@@ -197,15 +196,15 @@ function DinicAugmentFlow(sinkID:number, sourceID:number, edges:Edge[], path:num
     while(walk != sourceID){
         let edge = edges[path[walk]];
         let reverse = edges[edge.reverse];
-        edge.flow += minFlow;
-        reverse.flow -= minFlow;
+        edge.flow += bottleneck;
+        reverse.flow -= bottleneck;
         walk = edge.source;
     }
 }
 
 //Returns the level graph of the final iteration to help obtain the minimum cut.
 //Values marked -1 are untraversed.
-export function DinicMaxFlow(network:Network, sourceID:number, sinkID:number): number[]{
+export function DinicMaxFlow(network:DinicNetwork, sourceID:number, sinkID:number): number[]{
     lGraph = 0;
     fPath = 0;
     nAugment = 0;
@@ -226,13 +225,13 @@ export function DinicMaxFlow(network:Network, sourceID:number, sinkID:number): n
 
     while(pathFound){
         //Build level graph
-        pathFound = DinicLevelGraph(sinkID, sourceID, edges, nodes, visitedArr, levelGraph);
+        pathFound = DinicLevelGraph(sinkID, sourceID, nodes, visitedArr, levelGraph);
 
         if(!pathFound) continue; //Terminate - no more augmenting paths possible
 
         //Augment flows
         let augmentedFlow = true; 
-        //Reset to 0 for the BFS
+        //Reset to 0 for the DFS
         Util.Memset(activeEdge, 0);
         while(augmentedFlow){
             augmentedFlow = DinicFindPath(sinkID, sourceID, nodes, visitedArr, levelGraph, path, activeEdge);
@@ -254,13 +253,13 @@ export interface MinCutResult{
 
 //To be run after solving for Max Flow on a network
 //Returns the indexes of the cut edges
-export function MinCut(network:Network, sourceID:number, sinkID:number, levelGraph:number[]):MinCutResult{
+export function MinCut(network:DinicNetwork, sourceID:number, sinkID:number, levelGraph:number[]):MinCutResult{
     let minCutIndices:number[] = [];
     let visitedNodeList:number[] = [];
 
     let nodes = network.nodeList;
     let visited = Util.Fill<boolean>(nodes.length, false);
-    let frontier = new DS.Queue<number>();
+    let frontier = new DS.CircularBufferQueue<number>();
     frontier.Enqueue(sourceID);
     visited[sourceID] = true;
     while(frontier.Count() > 0){
@@ -285,4 +284,23 @@ export function MinCut(network:Network, sourceID:number, sinkID:number, levelGra
         });
     }
     return {nodeList:visitedNodeList, edgeIndices:minCutIndices} as MinCutResult;
+}
+
+export let DinicSolver: FlowBase.IMaxFlowSolver;
+
+DinicSolver = function(src: number, sink: number, network: DinicNetwork):FlowBase.IMaxFlowResult{
+    let levelGraph = DinicMaxFlow(network, src, sink);
+    let minCut = MinCut(network, src, sink, levelGraph);
+    
+    let sourceOutflux = () => {
+        let srcNode = network.nodeList[src];
+        return Util.Sum(srcNode.edges.map(e => e.flow));
+    }
+
+    let STreeIndices = () => minCut.nodeList;
+
+    return{
+        GetMaxFlow: sourceOutflux,
+        GetSourcePartition: STreeIndices
+    }
 }
