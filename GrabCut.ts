@@ -56,7 +56,7 @@ export class GrabCut{
         this.fgGMM.Fit(fgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
         this.bgGMM.Fit(bgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
 
-        let MAX_ITER = 3;
+        let MAX_ITER = 5;
         this.RunIterations(MAX_ITER);
     }
 
@@ -197,6 +197,7 @@ export class GrabCut{
 
         //Row, Column offsets for all 8 adjacent neighbours
         //let neighbours = [[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1],[1,0],[1,-1]];
+        //neighbours within the 4 cardinal directions gives a better result than 8 surrounding pixels.
         let neighbours = [[0,-1],[-1,0],[0,1],[1,0]];
         let coeff = neighbours.map(t => 50 / Math.sqrt(t[0] ** 2 + t[1] ** 2));
         
@@ -220,8 +221,9 @@ export class GrabCut{
                     .map(d => Mat.NormSquare(d));
                 
                 let meanDifference = Util.Sum(diffSquare) / diffSquare.length;
-
-                let beta = 1 / (2 * meanDifference);
+                
+                let denominator = (meanDifference > 0) ? (2 * meanDifference) : 100000; //To avoid divide by zero errors
+                let beta = 1 / (2 * denominator);
 
                 //console.log('pixelStart');
                 for(let n = 0; n < adjSet.length; n++){
@@ -229,6 +231,17 @@ export class GrabCut{
                     let neighbourIndex = GrabCut.GetArrayIndex(nR, nC, width);
                     let exponent = -beta * diffSquare[n];
                     let capacity = coeff[n] * Math.exp(exponent);
+                    
+                    if(isNaN(capacity)){
+                        console.log({
+                            coeff:coeff,
+                            diffSquare:diffSquare,
+                            diffSquareLen:diffSquare.length,
+                            beta:beta,
+                            exponent:exponent,
+                            capacity:capacity
+                        });
+                    }
                     network.CreateEdge(nodeIndex, neighbourIndex, capacity);
                     
                     maxCap = (capacity > maxCap)? capacity : maxCap; 
@@ -285,7 +298,18 @@ export class GrabCut{
 
     private static GetTLinkWeight(gmm:GMM.GMM, pixel:Mat.Matrix):number{
         let gmmResult = gmm.Predict(pixel).TotalLikelihood();
-        return -Math.log(gmmResult);
+        let res = -Math.log(gmmResult);
+        if(isNaN(res)){
+            console.log({
+                gmm:gmm,
+                res:res,
+                pixel:pixel,
+                gmmResult:gmmResult
+            });
+            //Temporary bandaid
+            return 0;
+        }
+        return res;
     }
 
     private static WithinBounds(row:number, col:number, width:number, height:number):boolean{

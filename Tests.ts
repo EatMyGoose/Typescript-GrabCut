@@ -91,6 +91,49 @@ function mFlowComparison2(){
 
 mFlowComparison2();
 
+function BkBenchmark(){
+    let BKNetwork = new BK.BKNetwork();
+
+    let arcs = 
+        t16
+        .split("\n")
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+        .map(line => line.split(/\s+/))
+        .map(t => t.map(n => parseInt(n)));
+
+    for(let i = 0; i < arcs.length; i++){
+        BKNetwork.CreateNode();
+    }
+
+    let src = 0;
+    let dest = arcs.length - 1;
+
+    arcs.forEach((t,ind) => {
+        for(let i = 0; i < t.length; i++){
+            let src = ind;
+            let dest = i;
+            let cap = t[i];
+            if(src == dest || cap == 0) continue;
+
+            BKNetwork.CreateEdge(src, dest, cap);
+        }
+    });
+    
+    
+    console.time("BK Bench");
+    let bkMaxFlow:number;
+    for(let i = 0; i < 50000; i++){
+        bkMaxFlow = BK.BKMaxflow(src, dest, BKNetwork.Clone()).GetMaxFlow();
+    }   
+    console.timeEnd("BK Bench");
+
+    console.log('--------------BK Benchmark----------');
+    console.log(`BK:${bkMaxFlow}`);
+    console.log(`expected: 2789`);
+}
+
+BkBenchmark();
 /*
 function QueueTest(){
     let queue = new DS.CircularBufferQueue<number>(1);

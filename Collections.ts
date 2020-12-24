@@ -203,35 +203,6 @@ export class LabelledCircularQueue<T extends dictKey> extends CircularBufferQueu
     }
 }
 
-/*
-//Provisional
-//More efficient implementation possible with a circular buffer + hashtable
-export class LabelledQueue<T> extends DoubleStackQueue<T>{
-
-    constructor() {
-        super();
-    }
-
-    RemoveElement(value: T) {
-        this.size -= 1;
-        for (let i = 0; i < this.incoming.length; i++) {
-            if (this.incoming[i] == value) {
-                this.incoming.splice(i, 1);
-                return;
-            }
-        }
-
-        for (let i = 0; i < this.outgoing.length; i++) {
-            if (this.outgoing[i] == value) {
-                this.outgoing.splice(i, 1);
-                return;
-            }
-        }
-    }
-}
-*/
-
-
 export type dictKey = number | string;
 
 interface hashtable<TValue> {

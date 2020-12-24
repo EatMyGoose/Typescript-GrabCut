@@ -364,6 +364,8 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
             return ind;
         };
         BKNetwork.prototype.CreateEdge = function (source, dest, capacity) {
+            if (isNaN(capacity))
+                throw new Error("capacity cannot be NaN");
             var edge = new BKEdge(source, dest, capacity, this.edges.length);
             this.edges.push(edge);
             this.nodes[source].edgesOut.push(edge);
@@ -394,16 +396,17 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
     }());
     exports.BKNetwork = BKNetwork;
     var NULL_PARENT = -1;
-    function BKGrow(nodes, active, flags, parents, edgeToParent) {
+    function BKGrow(nodes, active, flags, parents, edgeToParent, activeEdge) {
         while (active.Count() > 0) {
             var nInd = active.Peek();
             var group = flags[nInd];
-            var otherTree = (group == TreeFlag.S) ? TreeFlag.T : TreeFlag.S;
             var n = nodes[nInd];
             if (group == TreeFlag.S) {
-                var nonSaturatedEdges = n.edgesOut.filter(function (e) { return e.cap - e.flow > 0; });
-                for (var i = 0; i < nonSaturatedEdges.length; i++) {
-                    var e = nonSaturatedEdges[i];
+                var edgesOut = n.edgesOut;
+                for (var i = activeEdge[nInd]; i < edgesOut.length; i++) {
+                    var e = edgesOut[i];
+                    if (e.flow >= e.cap)
+                        continue;
                     var destNodeInd = e.to;
                     if (flags[destNodeInd] == TreeFlag.T) {
                         return e;
@@ -414,12 +417,15 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
                         edgeToParent[destNodeInd] = e;
                         active.Enqueue(destNodeInd);
                     }
+                    activeEdge[nInd] = i;
                 }
             }
             else {
-                var nonSaturatedEdges = n.edgesIn.filter(function (e) { return e.cap - e.flow > 0; });
-                for (var i = 0; i < nonSaturatedEdges.length; i++) {
-                    var e = nonSaturatedEdges[i];
+                var edgesIn = n.edgesIn;
+                for (var i = activeEdge[nInd]; i < edgesIn.length; i++) {
+                    var e = edgesIn[i];
+                    if (e.flow >= e.cap)
+                        continue;
                     var destNodeInd = e.from;
                     if (flags[destNodeInd] == TreeFlag.S) {
                         return e;
@@ -430,22 +436,27 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
                         edgeToParent[destNodeInd] = e;
                         active.Enqueue(destNodeInd);
                     }
+                    activeEdge[nInd] = i;
                 }
             }
             active.Dequeue();
+            activeEdge[nInd] = 0;
         }
         return null;
     }
-    function BKBottleneck(src, sink, connector, edgeToParent, parents) {
+    function BKBottleneck(src, sink, connector, edgeToParent) {
         var bottleneck = connector.cap - connector.flow;
         {
             var walkS = connector.from;
             while (walkS != src) {
                 var edge = edgeToParent[walkS];
-                if (parents[walkS] == NULL_PARENT) {
-                    throw Error("Null parent in augmenting path");
+                var newMin = Math.min(bottleneck, edge.cap - edge.flow);
+                if (isNaN(newMin)) {
+                    console.log(bottleneck);
+                    console.log(edge);
+                    throw new Error("Bottleneck NaN, edge:" + edge);
                 }
-                bottleneck = Math.min(bottleneck, edge.cap - edge.flow);
+                bottleneck = newMin;
                 walkS = edge.from;
             }
         }
@@ -453,16 +464,19 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
             var walkT = connector.to;
             while (walkT != sink) {
                 var edge = edgeToParent[walkT];
-                if (parents[walkT] == NULL_PARENT) {
-                    throw Error("Null parent in augmenting path");
+                var newMin = Math.min(bottleneck, edge.cap - edge.flow);
+                if (isNaN(newMin)) {
+                    console.log(bottleneck);
+                    console.log(edge);
+                    throw new Error("Bottleneck NaN, edge:" + edge);
                 }
-                bottleneck = Math.min(bottleneck, edge.cap - edge.flow);
+                bottleneck = newMin;
                 walkT = edge.to;
             }
         }
         return bottleneck;
     }
-    function BKAugment(bottleneck, src, sink, connector, edgeToParent, orphanSet, parents, flags) {
+    function BKAugment(bottleneck, src, sink, connector, edgeToParent, orphanSet, parents) {
         connector.flow += bottleneck;
         {
             var walkS = connector.from;
@@ -472,9 +486,6 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
                 if (edge.cap <= edge.flow) {
                     parents[walkS] = NULL_PARENT;
                     orphanSet.push(walkS);
-                    if (flags[walkS] != TreeFlag.S) {
-                        throw new Error("wrong cut");
-                    }
                 }
                 walkS = edge.from;
             }
@@ -487,49 +498,37 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
                 if (edge.cap <= edge.flow) {
                     parents[walkT] = NULL_PARENT;
                     orphanSet.push(walkT);
-                    if (flags[walkT] != TreeFlag.T) {
-                        throw new Error("wrong cut");
-                    }
                 }
                 walkT = edge.to;
             }
         }
     }
-    function LinkedToSource(ind, srcInd, sinkInd, parents, edgeToParent, flags) {
-        var walkS = ind;
+    function LinkedToSource(nodeInd, srcInd, parents, edgeToParent) {
+        var walkS = nodeInd;
         while (walkS != srcInd) {
             if (parents[walkS] == NULL_PARENT)
                 return false;
             var edge = edgeToParent[walkS];
-            if (flags[walkS] != TreeFlag.S) {
-                throw new Error("Wrong tree");
-            }
             walkS = edge.from;
         }
         return true;
     }
-    function LinkedToSink(ind, srcInd, sinkInd, parents, edgeToParent, flags) {
-        var walkT = ind;
+    function LinkedToSink(nodeInd, sinkInd, parents, edgeToParent) {
+        var walkT = nodeInd;
         while (walkT != sinkInd) {
             if (parents[walkT] == NULL_PARENT)
                 return false;
             var edge = edgeToParent[walkT];
-            if (flags[walkT] != TreeFlag.T) {
-                throw new Error("Wrong tree");
-            }
             walkT = edge.to;
         }
         return true;
     }
     function BKAdopt(nodes, orphanSet, flags, parents, edgeToParent, activeSet, src, sink) {
-        var _loop_1 = function () {
+        while (orphanSet.length > 0) {
             var ind = orphanSet.pop();
             var orphanNode = nodes[ind];
             var group = flags[ind];
             var isSourceTree = group == TreeFlag.S;
-            if (group == TreeFlag.Free) {
-                throw new Error("Free node");
-            }
             var parentFound = false;
             {
                 var edges = (isSourceTree) ? orphanNode.edgesIn : orphanNode.edgesOut;
@@ -540,8 +539,8 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
                     var sameGroup = flags[parentInd] == group;
                     if (unsaturated && sameGroup) {
                         var linkedToSource = (isSourceTree) ?
-                            LinkedToSource(e.from, src, sink, parents, edgeToParent, flags) :
-                            LinkedToSink(e.to, src, sink, parents, edgeToParent, flags);
+                            LinkedToSource(e.from, src, parents, edgeToParent) :
+                            LinkedToSink(e.to, sink, parents, edgeToParent);
                         if (linkedToSource) {
                             parentFound = true;
                             parents[ind] = parentInd;
@@ -552,51 +551,57 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
                 }
             }
             if (parentFound)
-                return "continue";
+                continue;
             {
                 if (isSourceTree) {
-                    orphanNode.edgesIn
-                        .filter(function (e) { return e.flow < e.cap && flags[e.from] == group; })
-                        .forEach(function (e) {
-                        if (!activeSet.Contains(e.from)) {
-                            activeSet.Enqueue(e.from);
+                    var edgesIn = orphanNode.edgesIn;
+                    for (var i = 0; i < edgesIn.length; i++) {
+                        var e = edgesIn[i];
+                        if (e.flow < e.cap && flags[e.from] == group) {
+                            if (!activeSet.Contains(e.from)) {
+                                activeSet.Enqueue(e.from);
+                            }
                         }
-                    });
-                    orphanNode.edgesOut
-                        .filter(function (e) { return flags[e.to] == group && parents[e.to] == ind; })
-                        .forEach(function (e) {
-                        orphanSet.push(e.to);
-                        parents[e.to] = NULL_PARENT;
-                    });
+                    }
+                    var edgesOut = orphanNode.edgesOut;
+                    for (var i = 0; i < edgesOut.length; i++) {
+                        var e = edgesOut[i];
+                        if (flags[e.to] == group && parents[e.to] == ind) {
+                            orphanSet.push(e.to);
+                            parents[e.to] = NULL_PARENT;
+                        }
+                    }
                 }
                 else {
-                    orphanNode.edgesOut
-                        .filter(function (e) { return e.flow < e.cap && flags[e.to] == group; })
-                        .forEach(function (e) {
-                        if (!activeSet.Contains(e.to)) {
-                            activeSet.Enqueue(e.to);
+                    var edgesOut = orphanNode.edgesOut;
+                    for (var i = 0; i < edgesOut.length; i++) {
+                        var e = edgesOut[i];
+                        if (e.flow < e.cap && flags[e.to] == group) {
+                            if (!activeSet.Contains(e.to)) {
+                                activeSet.Enqueue(e.to);
+                            }
                         }
-                    });
-                    orphanNode.edgesIn
-                        .filter(function (e) { return flags[e.from] == group && parents[e.from] == ind; })
-                        .forEach(function (e) {
-                        orphanSet.push(e.from);
-                        parents[e.from] = NULL_PARENT;
-                    });
+                    }
+                    var edgesIn = orphanNode.edgesIn;
+                    for (var i = 0; i < edgesIn.length; i++) {
+                        var e = edgesIn[i];
+                        if (flags[e.from] == group && parents[e.from] == ind) {
+                            orphanSet.push(e.from);
+                            parents[e.from] = NULL_PARENT;
+                        }
+                    }
                 }
             }
             flags[ind] = TreeFlag.Free;
             if (activeSet.Contains(ind)) {
                 activeSet.Remove(ind);
             }
-        };
-        while (orphanSet.length > 0) {
-            _loop_1();
         }
     }
     exports.BKMaxflow = function (src, sink, network) {
         var nodes = network.nodes;
         var active = new DS.LabelledCircularQueue();
+        var activeEdge = Util.Fill(nodes.length, 0);
         var flags = Util.Fill(nodes.length, TreeFlag.Free);
         var parents = Util.Fill(nodes.length, NULL_PARENT);
         var edgeToParent = Util.Fill(nodes.length, null);
@@ -606,11 +611,11 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
         flags[src] = TreeFlag.S;
         flags[sink] = TreeFlag.T;
         while (true) {
-            var connector = BKGrow(nodes, active, flags, parents, edgeToParent);
+            var connector = BKGrow(nodes, active, flags, parents, edgeToParent, activeEdge);
             if (connector == null)
                 break;
-            var min = BKBottleneck(src, sink, connector, edgeToParent, parents);
-            BKAugment(min, src, sink, connector, edgeToParent, orphans, parents, flags);
+            var min = BKBottleneck(src, sink, connector, edgeToParent);
+            BKAugment(min, src, sink, connector, edgeToParent, orphans, parents);
             BKAdopt(nodes, orphans, flags, parents, edgeToParent, active, src, sink);
         }
         var sourceOutflux = function () { return Util.Sum(nodes[src].edgesOut.map(function (e) { return e.flow; })); };
@@ -1003,14 +1008,14 @@ define("DinicFlowSolver", ["require", "exports", "Utility", "Collections"], func
             });
             var edgeDict = Util.HashItems(newEdges, function (e) { return e.id; });
             var newNodes = srcNodes.map(function (n) { return new GraphNode(n.id); });
-            var _loop_2 = function (i) {
+            var _loop_1 = function (i) {
                 srcNodes[i].edges.forEach(function (e) {
                     var edgeID = e.id;
                     newNodes[i].edges.push(edgeDict.Get(edgeID));
                 });
             };
             for (var i = 0; i < newNodes.length; i++) {
-                _loop_2(i);
+                _loop_1(i);
             }
             var n = new DinicNetwork();
             n.edgeList = newEdges;
@@ -1499,7 +1504,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility"],
             var GMM_N_ITER = 5;
             this.fgGMM.Fit(fgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
             this.bgGMM.Fit(bgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
-            var MAX_ITER = 3;
+            var MAX_ITER = 5;
             this.RunIterations(MAX_ITER);
         };
         GrabCut.prototype.RunIterations = function (nIter) {
@@ -1600,8 +1605,8 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility"],
             var neighbours = [[0, -1], [-1, 0], [0, 1], [1, 0]];
             var coeff = neighbours.map(function (t) { return 50 / Math.sqrt(Math.pow(t[0], 2) + Math.pow(t[1], 2)); });
             var maxCap = Number.MIN_VALUE;
-            var _loop_3 = function (r) {
-                var _loop_4 = function (c) {
+            var _loop_2 = function (r) {
+                var _loop_3 = function (c) {
                     var nodeIndex = GrabCut.GetArrayIndex(r, c, width);
                     var adjSet = neighbours
                         .map(function (t) { return [r + t[0], c + t[1]]; })
@@ -1610,22 +1615,33 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility"],
                         .map(function (t) { return Mat.Sub(img[r][c], img[t[0]][t[1]]); })
                         .map(function (d) { return Mat.NormSquare(d); });
                     var meanDifference = Util.Sum(diffSquare) / diffSquare.length;
-                    var beta = 1 / (2 * meanDifference);
+                    var denominator = (meanDifference > 0) ? (2 * meanDifference) : 100000;
+                    var beta = 1 / (2 * denominator);
                     for (var n = 0; n < adjSet.length; n++) {
                         var _a = adjSet[n], nR = _a[0], nC = _a[1];
                         var neighbourIndex = GrabCut.GetArrayIndex(nR, nC, width);
                         var exponent = -beta * diffSquare[n];
                         var capacity = coeff[n] * Math.exp(exponent);
+                        if (isNaN(capacity)) {
+                            console.log({
+                                coeff: coeff,
+                                diffSquare: diffSquare,
+                                diffSquareLen: diffSquare.length,
+                                beta: beta,
+                                exponent: exponent,
+                                capacity: capacity
+                            });
+                        }
                         network.CreateEdge(nodeIndex, neighbourIndex, capacity);
                         maxCap = (capacity > maxCap) ? capacity : maxCap;
                     }
                 };
                 for (var c = 0; c < width; c++) {
-                    _loop_4(c);
+                    _loop_3(c);
                 }
             };
             for (var r = 0; r < height; r++) {
-                _loop_3(r);
+                _loop_2(r);
             }
             return [network, maxCap];
         };
@@ -1660,7 +1676,17 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility"],
         };
         GrabCut.GetTLinkWeight = function (gmm, pixel) {
             var gmmResult = gmm.Predict(pixel).TotalLikelihood();
-            return -Math.log(gmmResult);
+            var res = -Math.log(gmmResult);
+            if (isNaN(res)) {
+                console.log({
+                    gmm: gmm,
+                    res: res,
+                    pixel: pixel,
+                    gmmResult: gmmResult
+                });
+                return 0;
+            }
+            return res;
         };
         GrabCut.WithinBounds = function (row, col, width, height) {
             return (row >= 0 && row < height) && (col >= 0 && col < width);
@@ -1752,6 +1778,40 @@ define("Tests", ["require", "exports", "DinicFlowSolver", "BKGraph", "MaxFlowTes
         console.log("expected: 2789");
     }
     mFlowComparison2();
+    function BkBenchmark() {
+        var BKNetwork = new BK.BKNetwork();
+        var arcs = MaxFlowTestCase_1.t16
+            .split("\n")
+            .map(function (line) { return line.trim(); })
+            .filter(function (line) { return line.length > 0; })
+            .map(function (line) { return line.split(/\s+/); })
+            .map(function (t) { return t.map(function (n) { return parseInt(n); }); });
+        for (var i = 0; i < arcs.length; i++) {
+            BKNetwork.CreateNode();
+        }
+        var src = 0;
+        var dest = arcs.length - 1;
+        arcs.forEach(function (t, ind) {
+            for (var i = 0; i < t.length; i++) {
+                var src_2 = ind;
+                var dest_2 = i;
+                var cap = t[i];
+                if (src_2 == dest_2 || cap == 0)
+                    continue;
+                BKNetwork.CreateEdge(src_2, dest_2, cap);
+            }
+        });
+        console.time("BK Bench");
+        var bkMaxFlow;
+        for (var i = 0; i < 50000; i++) {
+            bkMaxFlow = BK.BKMaxflow(src, dest, BKNetwork.Clone()).GetMaxFlow();
+        }
+        console.timeEnd("BK Bench");
+        console.log('--------------BK Benchmark----------');
+        console.log("BK:" + bkMaxFlow);
+        console.log("expected: 2789");
+    }
+    BkBenchmark();
 });
 define("WebPage/Camera", ["require", "exports"], function (require, exports) {
     "use strict";

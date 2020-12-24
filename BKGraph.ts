@@ -48,6 +48,9 @@ export class BKNetwork implements FlowBase.IFlowNetwork {
     }
 
     CreateEdge(source: number, dest: number, capacity: number): void {
+        if(isNaN(capacity)) throw new Error("capacity cannot be NaN");
+        
+        //capacity = Math.floor(capacity);
         let edge = new BKEdge(source, dest, capacity, this.edges.length);
         this.edges.push(edge);
         this.nodes[source].edgesOut.push(edge);
@@ -84,20 +87,20 @@ const NULL_PARENT = -1;
 //Returns null if no path is found
 //Returned Edge: from(source) -> to(sink)
 //The edge represents the connection between the source and sink trees
-function BKGrow(nodes: BKNode[], active: DS.IQueue<number>, flags: TreeFlag[], parents: number[], edgeToParent: BKEdge[]): BKEdge | null {
+function BKGrow(nodes: BKNode[], active: DS.IQueue<number>, flags: TreeFlag[], parents: number[], edgeToParent: BKEdge[], activeEdge:number[]): BKEdge | null {
 
     while (active.Count() > 0) {
         let nInd = active.Peek();
         let group = flags[nInd];
-        let otherTree = (group == TreeFlag.S) ? TreeFlag.T : TreeFlag.S;
         let n = nodes[nInd];
 
         if (group == TreeFlag.S) { //Source tree
-            let nonSaturatedEdges =
-                n.edgesOut.filter(e => e.cap - e.flow > 0);
+            let edgesOut = n.edgesOut;
+            for (let i = activeEdge[nInd]; i < edgesOut.length; i++) {
+                let e = edgesOut[i];
+                //Only process unsaturated edges
+                if (e.flow >= e.cap) continue;
 
-            for (let i = 0; i < nonSaturatedEdges.length; i++) {
-                let e = nonSaturatedEdges[i];
                 let destNodeInd = e.to;
 
                 if (flags[destNodeInd] == TreeFlag.T) {
@@ -108,13 +111,17 @@ function BKGrow(nodes: BKNode[], active: DS.IQueue<number>, flags: TreeFlag[], p
                     edgeToParent[destNodeInd] = e; //Mark the edge used to traverse to the child node
                     active.Enqueue(destNodeInd);
                 }
+                //To ensure previous edges are not re-traversed
+                activeEdge[nInd] = i;
             }
         } else { //Sink Tree
-            let nonSaturatedEdges =
-                n.edgesIn.filter(e => e.cap - e.flow > 0);
+            let edgesIn = n.edgesIn;
+            for (let i = activeEdge[nInd]; i < edgesIn.length; i++) {
+                let e = edgesIn[i];
 
-            for (let i = 0; i < nonSaturatedEdges.length; i++) {
-                let e = nonSaturatedEdges[i];
+                //Only process unsaturated edges
+                if (e.flow >= e.cap) continue;
+
                 let destNodeInd = e.from;
                 if (flags[destNodeInd] == TreeFlag.S) {
                     return e; //Found a path;
@@ -124,37 +131,36 @@ function BKGrow(nodes: BKNode[], active: DS.IQueue<number>, flags: TreeFlag[], p
                     edgeToParent[destNodeInd] = e; //Mark the edge used to traverse to the parent node
                     active.Enqueue(destNodeInd);
                 }
+                //To ensure previous edges are not re-traversed
+                activeEdge[nInd] = i;
             }
         }
 
         //Processed all neighbours, remove from active set
         active.Dequeue();
+        //Reset active edge
+        activeEdge[nInd] = 0; 
     }
     return null;
 }
 
 //Parents only used for debugging purposes
-function BKBottleneck(src: number, sink: number, connector: BKEdge, edgeToParent: BKEdge[], parents: number[]): number {
+function BKBottleneck(src: number, sink: number, connector: BKEdge, edgeToParent: BKEdge[]): number {
     let bottleneck = connector.cap - connector.flow;
 
-    /*
-    let SList = [];
-    let SEdges = [];
-    let TList = [];
-    let TEgdes = [];*/
     //Traverse up S tree
     {
         let walkS = connector.from;
         while (walkS != src) {
+            //if (parents[walkS] == NULL_PARENT) throw Error("Null parent in augmenting path");
             let edge = edgeToParent[walkS];
-            if (parents[walkS] == NULL_PARENT) {
-                throw Error("Null parent in augmenting path");
+            let newMin = Math.min(bottleneck, edge.cap - edge.flow);
+            if(isNaN(newMin)){
+                console.log(bottleneck);
+                console.log(edge);
+                throw new Error(`Bottleneck NaN, edge:${edge}`);
             }
-            /*
-            SList.push(walkS);
-            SEdges.push(edge);
-            */
-            bottleneck = Math.min(bottleneck, edge.cap - edge.flow);
+            bottleneck = newMin
             walkS = edge.from;
         }
     }
@@ -164,35 +170,23 @@ function BKBottleneck(src: number, sink: number, connector: BKEdge, edgeToParent
     {
         let walkT = connector.to;
         while (walkT != sink) {
+            //if (parents[walkT] == NULL_PARENT) throw Error("Null parent in augmenting path");          
             let edge = edgeToParent[walkT];
-            if (parents[walkT] == NULL_PARENT) {
-                throw Error("Null parent in augmenting path");
+            let newMin  = Math.min(bottleneck, edge.cap - edge.flow);
+            if(isNaN(newMin)){
+                console.log(bottleneck);
+                console.log(edge);
+                throw new Error(`Bottleneck NaN, edge:${edge}`);
             }
-            /*
-            TList.push(walkT);
-            TEgdes.push(edge);
-            */
-            bottleneck = Math.min(bottleneck, edge.cap - edge.flow);
+            bottleneck = newMin;
             walkT = edge.to;
         }
     }
 
-    /*
-    console.log(`bottleneck:${bottleneck}`);
-    
-    console.log(SList);
-    console.log(SEdges);
-    console.log(TList);
-    console.log(TEgdes);
-    if(bottleneck == 0){
-        throw Error("");
-    }*/
-    //console.log(bottleneck);
     return bottleneck;
 }
 
-function BKAugment(bottleneck: number, src: number, sink: number, connector: BKEdge, edgeToParent: BKEdge[], orphanSet: number[], parents: number[], flags: TreeFlag[]): void {
-
+function BKAugment(bottleneck: number, src: number, sink: number, connector: BKEdge, edgeToParent: BKEdge[], orphanSet: number[], parents: number[]): void {
     connector.flow += bottleneck;
 
     //Traverse up S tree
@@ -204,11 +198,9 @@ function BKAugment(bottleneck: number, src: number, sink: number, connector: BKE
             edge.flow += bottleneck;
             //Add saturated parent to orphan set 
             if (edge.cap <= edge.flow) {
+                //if (flags[walkS] != TreeFlag.S) throw new Error("wrong cut");
                 parents[walkS] = NULL_PARENT;    //To signal that this is an orphan in the adoption phase
                 orphanSet.push(walkS);
-                if (flags[walkS] != TreeFlag.S) {
-                    throw new Error("wrong cut");
-                }
             }
             walkS = edge.from;
         }
@@ -222,12 +214,9 @@ function BKAugment(bottleneck: number, src: number, sink: number, connector: BKE
             edge.flow += bottleneck;
             //Add saturated parent to orphan set 
             if (edge.cap <= edge.flow) {
+                //if (flags[walkT] != TreeFlag.T) throw new Error("wrong cut");
                 parents[walkT] = NULL_PARENT;    //To signal that this is an orphan in the adoption phase
                 orphanSet.push(walkT);
-
-                if (flags[walkT] != TreeFlag.T) {
-                    throw new Error("wrong cut");
-                }
             }
             walkT = edge.to;
         }
@@ -236,45 +225,23 @@ function BKAugment(bottleneck: number, src: number, sink: number, connector: BKE
 
 //These 2 functions (LinkedToSource & LinkedToSink) are to be used only after calling BKAugment, 
 //in order to set the parents to NULL_PARENT as signals that the nodes are orphans
-function LinkedToSource(ind: number, srcInd: number, sinkInd: number, parents: number[], edgeToParent: BKEdge[], flags: TreeFlag[]): boolean {
-    let walkS = ind;
+function LinkedToSource(nodeInd: number, srcInd: number, parents: number[], edgeToParent: BKEdge[]): boolean {
+    let walkS = nodeInd;
     while (walkS != srcInd) {
-        /*
-        console.log("SOURCE");
-        console.log(`S:${srcInd}, T:${sinkInd}`);
-        console.log(flags[walkS]);
-        console.log(walkS);*/
         if (parents[walkS] == NULL_PARENT) return false; //Orphan detected in path
-
         let edge = edgeToParent[walkS];
-        //console.log(edge);
-
-        if (flags[walkS] != TreeFlag.S) {
-            throw new Error("Wrong tree");
-        }
-
+        // if (flags[walkS] != TreeFlag.S) throw new Error("Wrong tree");
         walkS = edge.from;
     }
     return true;
 }
 
-function LinkedToSink(ind: number, srcInd: number, sinkInd: number, parents: number[], edgeToParent: BKEdge[], flags: TreeFlag[]): boolean {
-    let walkT = ind;
+function LinkedToSink(nodeInd: number, sinkInd: number, parents: number[], edgeToParent: BKEdge[]): boolean {
+    let walkT = nodeInd;
     while (walkT != sinkInd) {
-        /*
-        console.log("SINK");
-        console.log(`S:${srcInd}, T:${sinkInd}`);
-        console.log(flags[walkT]);
-        console.log(walkT);*/
         if (parents[walkT] == NULL_PARENT) return false; //Orphan detected in path
-
         let edge = edgeToParent[walkT];
-        //console.log(edge);
-
-        if (flags[walkT] != TreeFlag.T) {
-            throw new Error("Wrong tree")
-        }
-
+        // if (flags[walkT] != TreeFlag.T) throw new Error("Wrong tree");
         walkT = edge.to;
     }
     return true;
@@ -282,21 +249,16 @@ function LinkedToSink(ind: number, srcInd: number, sinkInd: number, parents: num
 
 function BKAdopt(nodes: BKNode[], orphanSet: number[], flags: TreeFlag[], parents: number[], edgeToParent: BKEdge[], activeSet: DS.LabelledCircularQueue<number>, src: number, sink: number) {
     while (orphanSet.length > 0) {
-        //console.log(orphanSet.length);
-
         let ind = orphanSet.pop();
         let orphanNode = nodes[ind];
         let group = flags[ind];
+        //if (group == TreeFlag.Free) throw new Error("Free node");
         let isSourceTree = group == TreeFlag.S;
-        if (group == TreeFlag.Free) {
-            throw new Error("Free node");
-        }
 
         //Find parents (non-saturated connecting edge + within same tree)
         //Note: in the augmenting phase, orphans had their parents set to -1
 
         let parentFound = false;
-
         {
             let edges = (isSourceTree) ? orphanNode.edgesIn : orphanNode.edgesOut;
             for (let i = 0; i < edges.length; i++) {
@@ -307,8 +269,8 @@ function BKAdopt(nodes: BKNode[], orphanSet: number[], flags: TreeFlag[], parent
 
                 if (unsaturated && sameGroup) {
                     let linkedToSource = (isSourceTree) ?
-                        LinkedToSource(e.from, src, sink, parents, edgeToParent, flags) :
-                        LinkedToSink(e.to, src, sink, parents, edgeToParent, flags);
+                        LinkedToSource(e.from, src, parents, edgeToParent) :
+                        LinkedToSink(e.to, sink, parents, edgeToParent);
                     if (linkedToSource) {
                         //Valid parent found
                         parentFound = true;
@@ -326,55 +288,55 @@ function BKAdopt(nodes: BKNode[], orphanSet: number[], flags: TreeFlag[], parent
         //Source -> parent: upstream node , child: downstream ndoe
         //Sink -> parent:downstream node, child: upstream node
 
-        //console.log(`parent not found for ${ind}`);
         {
             if (isSourceTree) {
-                //Add to active set
-                //parents
-                orphanNode.edgesIn
-                    .filter(e => e.flow < e.cap && flags[e.from] == group)
-                    .forEach(e => {
+                //Scan parents to look for candidates 
+                //to add to the Active Set
+                let edgesIn = orphanNode.edgesIn;
+                for (let i = 0; i < edgesIn.length; i++) {
+                    let e = edgesIn[i];
+                    if (e.flow < e.cap && flags[e.from] == group) {
                         if (!activeSet.Contains(e.from)) {
-                            activeSet.Enqueue(e.from)
+                            activeSet.Enqueue(e.from);
                         }
-                    });
+                    }
+                }
 
-                //Add to orphan set
-                //Update children
-                orphanNode.edgesOut
-                    .filter(e => flags[e.to] == group && parents[e.to] == ind)
-                    .forEach(e => {
+                //Scan children & add to orphan set
+                let edgesOut = orphanNode.edgesOut;
+                for (let i = 0; i < edgesOut.length; i++) {
+                    let e = edgesOut[i];
+                    if (flags[e.to] == group && parents[e.to] == ind) {
                         orphanSet.push(e.to);
                         parents[e.to] = NULL_PARENT;
-                    });
+                    }
+                }
 
             } else {
                 //Sink tree
-                //Add to active set
-                //parents
+                //Scan parents (those closer to the sink node) 
+                //to add to the active set
 
-                //console.log(orphanNode.edgesOut);
-                orphanNode.edgesOut
-                    .filter(e => e.flow < e.cap && flags[e.to] == group)
-                    .forEach(e => {
+                let edgesOut = orphanNode.edgesOut;
+                for(let i = 0; i < edgesOut.length; i++){
+                    let e = edgesOut[i];
+                    if(e.flow < e.cap && flags[e.to] == group){
                         if (!activeSet.Contains(e.to)) {
                             activeSet.Enqueue(e.to);
                         }
-                    });
+                    }
+                }
 
-                //Update orphan set
-                /*
-                console.log(orphanNode.edgesIn);
-                console.log(orphanNode.edgesIn.map(e => parents[e.from]));
-                console.log(group);
-                console.log(orphanNode.edgesIn.map(e => flags[e.from]));*/
+                //Find children & add them to the orphan set
 
-                orphanNode.edgesIn
-                    .filter(e => flags[e.from] == group && parents[e.from] == ind)
-                    .forEach(e => {
+                let edgesIn = orphanNode.edgesIn;
+                for(let i = 0; i < edgesIn.length; i++){
+                    let e = edgesIn[i];
+                    if(flags[e.from] == group && parents[e.from] == ind){
                         orphanSet.push(e.from);
                         parents[e.from] = NULL_PARENT;
-                    });
+                    }
+                }
             }
         }
 
@@ -399,6 +361,7 @@ BKMaxflow = function (src: number, sink: number, network: BKNetwork): FlowBase.I
     let nodes = network.nodes;
 
     let active = new DS.LabelledCircularQueue<number>();
+    let activeEdge = Util.Fill<number>(nodes.length, 0);
     let flags: TreeFlag[] = Util.Fill<TreeFlag>(nodes.length, TreeFlag.Free);
     let parents: number[] = Util.Fill<number>(nodes.length, NULL_PARENT);
     //path: stores the edge that leads to the parent, used for finding the augmenting path
@@ -414,15 +377,15 @@ BKMaxflow = function (src: number, sink: number, network: BKNetwork): FlowBase.I
     while (true) {
         //Grow
         //console.log("Grow");
-        let connector = BKGrow(nodes, active, flags, parents, edgeToParent);
+        let connector = BKGrow(nodes, active, flags, parents, edgeToParent, activeEdge);
 
         if (connector == null) break; //No augmenting path found, max flow found
 
         //Augment
         //console.log("Bottleneck");
-        let min = BKBottleneck(src, sink, connector, edgeToParent, parents);
+        let min = BKBottleneck(src, sink, connector, edgeToParent);
         //console.log("Augment");
-        BKAugment(min, src, sink, connector, edgeToParent, orphans, parents, flags);
+        BKAugment(min, src, sink, connector, edgeToParent, orphans, parents);
 
         //Adoption phase
         //console.log("adoption");
