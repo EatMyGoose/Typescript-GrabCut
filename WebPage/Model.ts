@@ -179,7 +179,9 @@ export class Model {
         cut.BeginCrop();
 
         let mask = cut.GetAlphaMask();
-        this.croppedImage = ImgUtil.ApplyAlphaMask(this.originalImageData, mask);
+        //this.croppedImage = ImgUtil.ApplyAlphaMask(this.originalImageData, mask);
+        let alphaApplied = ImgUtil.ApplyAlphaMaskToImgData(this.originalImageData, mask);
+        this.croppedImage = ImgUtil.ImgData2URL(alphaApplied);
         this.croppedImageAlpha = ImgUtil.CreateBWImage(mask);
 
         this.preview.Draw();

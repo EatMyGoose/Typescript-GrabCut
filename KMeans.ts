@@ -1,6 +1,7 @@
 import * as Util from './Utility';
 import * as Mat from "./Matrix";
 import { Dictionary } from './Collections';
+import * as Conv from './ConvergenceChecker';
 
 export class KMeansResult {
     readonly clusters: Mat.Matrix[][];
@@ -24,6 +25,8 @@ export class KMeansResult {
             }
         });
         this.meanDist = distAcc / nElems;
+
+        return this.meanDist;
     }
 }
 
@@ -39,10 +42,11 @@ function kMeansPlusPlusInit(nClusters: number, data: Mat.Matrix[]): Mat.Matrix[]
     selected.Set(firstIndex, true);
     let centres: Mat.Matrix[] = [data[firstIndex]];
 
+    let prob:number[] = new Array(data.length);
+    let cumProb:number[] = new Array(data.length);
+
     while (centres.length < nClusters) {
         //Probability proportional to square of distance from closest centre
-        let prob = Util.Fill<number>(data.length, 0);
-
         for (let i = 0; i < data.length; i++) {
             let minDist = Number.MAX_VALUE;
             for (let c = 0; c < centres.length; c++) {
@@ -55,7 +59,6 @@ function kMeansPlusPlusInit(nClusters: number, data: Mat.Matrix[]): Mat.Matrix[]
             prob[i] = minDist;
         }
 
-        let cumProb = Util.Fill<number>(data.length, 0);
         let acc = 0;
 
         for (let i = 0; i < prob.length; i++) {
@@ -65,6 +68,7 @@ function kMeansPlusPlusInit(nClusters: number, data: Mat.Matrix[]): Mat.Matrix[]
         
         let max = cumProb[cumProb.length - 1];
         let selectedIndex = 0; 
+
         do{
             let rand = Math.random() * max; 
             //TODO: could potentially use a binary search here
@@ -84,13 +88,12 @@ function kMeansPlusPlusInit(nClusters: number, data: Mat.Matrix[]): Mat.Matrix[]
 //Expects column vectors as inputs
 export function Fit(
     data: Mat.Matrix[], nClusters: number,
-    nIter: number = 100, init: Initializer = Initializer.random): KMeansResult {
+    nIter: number = 100, minPercentChange:number = 1, init: Initializer = Initializer.KMeansPlusPlus): KMeansResult {
 
     //if (!Mat.IsColumnVector(data[0])) throw new Error('KMeans: data needs to be an array of column vectors');
 
     let [nRows, nCols] = Mat.Dimensions(data[0]);
     //Init;
-    let selected = {};
     let means = [];
 
     if (init == Initializer.random) {
@@ -100,9 +103,15 @@ export function Fit(
         means = kMeansPlusPlusInit(nClusters, data);
     }
 
-    for (let iter = 0; iter < nIter; iter++) {
+    let conv = new Conv.ConvergenceChecker(minPercentChange, nIter);
+
+    let result:KMeansResult;
+
+    
+    let clusters = GroupToNearestMean(data, means);
+
+    do{
         //Assignment
-        let clusters = GroupToNearestMean(data, means);
 
         //Recomputation of means
         means = clusters.map(c => {
@@ -112,10 +121,13 @@ export function Fit(
             }
             return Mat.Scale(1 / c.length, acc);
         })
-    }
 
-    let updatedClusters = GroupToNearestMean(data, means);
-    return new KMeansResult(updatedClusters, means);
+        clusters = GroupToNearestMean(data, means);
+        result = new KMeansResult(clusters, means);
+    }while(!conv.hasConverged(result.MeanDistanceToCluster()))
+
+    console.log(`KMeans exited at ${conv.getCurrentIter()}`);
+    return result;
 }
 
 function GroupToNearestMean(data: Mat.Matrix[], means: Mat.Matrix[]): Mat.Matrix[][] {

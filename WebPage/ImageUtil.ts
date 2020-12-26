@@ -126,7 +126,7 @@ export function ApplyAlphaMask(img: ImageData, alpha: number[][]): string {
     for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
             let alphaInd = 4 * (width * y + x) + 3;
-            buffer[alphaInd] = alpha[y][x] * 255
+            buffer[alphaInd] = 255; alpha[y][x] * 255;
         }
     }
 
@@ -150,5 +150,159 @@ export function CreateBWImage(values: number[][]): string {
         }
     }
     return c.SetImageData(img);
+}
+
+//Mask -> values range from [0(transparent), 1(opaque)] 
+export function ApplyAlphaMaskToImgData(original:ImageData, alpha:number[][]):ImageData{
+    let [width, height] = [original.width, original.height];
+    let imgCopy = new ImageData(width, height);
+    let buffer = imgCopy.data;
+
+    buffer.set(original.data); //Deepcopy the original pixel data
+
+    //Assign alpha values
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            let alphaInd = 4 * (width * y + x) + 3;
+            buffer[alphaInd] = alpha[y][x] * 255;
+        }
+    }
+
+    return imgCopy;
+}
+
+class BinaryWriter{
+    private buffer:Uint8Array;
+    private cursor:number = 0;
+    private littleEndian = true;
+    private view:DataView;
+
+    constructor(buffer:Uint8Array, littleEndian:boolean){
+        this.buffer = buffer;
+        this.littleEndian = littleEndian;
+        this.view = new DataView(buffer.buffer);
+    }
+
+    Seek(cursor:number){
+        this.cursor = cursor;
+    }
+
+    Cursor():number{
+        return this.cursor;
+    }
+
+    WriteInt(val:number){
+        this.view.setInt32(this.cursor, val, this.littleEndian);
+        this.cursor += 4;
+    }
+
+    WriteShort(val:number){
+        this.view.setInt16(this.cursor, val, this.littleEndian);
+        this.cursor += 2;
+    }
+
+    WriteByte(val:number){
+        this.view.setUint8(this.cursor, val);
+        this.cursor += 1;
+    }
+
+    BlockCopyArray(source:Uint8Array | Uint8ClampedArray){
+        this.buffer.set(source, this.cursor);
+        this.cursor += source.length;
+    }
+
+    GetBuffer(){
+        return this.buffer;
+    }
+}
+
+export function ImgData2URL(data:ImageData):string{
+    let [width, height] = [data.width, data.height];
+    const headerSize = 14;
+    const infoHeaderSize = 108;
+    let imgDataSize = width * height * 4; //4bpp
+    let totalSize = imgDataSize + infoHeaderSize + headerSize;
+    let bw = new BinaryWriter(new Uint8Array(totalSize), true);
+
+    //Header
+
+    //BM
+    bw.WriteByte(0x42);
+    bw.WriteByte(0x4D);
+
+    bw.WriteInt(totalSize);
+
+    bw.WriteShort(0);
+    bw.WriteShort(0);
+
+    let imgDataIndex = headerSize + infoHeaderSize;
+    bw.WriteInt(imgDataIndex);
+
+    //InfoHeader
+
+    //Bitmapinfoheader
+    bw.WriteInt(infoHeaderSize);
+    bw.WriteInt(width);
+    bw.WriteInt(-height);//Negative height - Top down image
+    bw.WriteShort(1); //Colour planes, always 1
+    
+    const bitsPerPixel = 32; //ARGB
+    bw.WriteShort(bitsPerPixel);
+
+    const BI_RGB = 0;
+    const BI_BITFIELDS = 3;
+    bw.WriteInt(BI_BITFIELDS);
+    bw.WriteInt(imgDataSize);
+
+    const inchesPerMetre = 39;
+    const hRes = 72 * inchesPerMetre; //pixels per meter
+    const vRes = 72 * inchesPerMetre; //pixels per meter
+    bw.WriteInt(hRes);
+    bw.WriteInt(vRes);
+
+    const nColours = 0; //0 for default
+    bw.WriteInt(nColours);
+
+    const importantColours = 0;
+    bw.WriteInt(importantColours);
+
+    
+    //BITMAPV4HEADER extensions
+    const R_MASK = 0x00FF0000;
+    const G_MASK = 0x0000FF00;
+    const B_MASK = 0x000000FF;
+    const A_MASK = 0xFF000000;
+
+    bw.WriteInt(R_MASK);
+    bw.WriteInt(G_MASK);
+    bw.WriteInt(B_MASK);
+    bw.WriteInt(A_MASK);
+
+    const LCS_DEVICE_RGB = 1;
+    bw.WriteInt(LCS_DEVICE_RGB);
+    
+    const CIEXYZTRIPLE_SIZE = 36;
+    for(let i = 0; i <  CIEXYZTRIPLE_SIZE; i++) bw.WriteByte(0);
+
+    bw.WriteInt(0);
+    bw.WriteInt(0);
+    bw.WriteInt(0);
+    //
+
+    //Bitmap data
+    //Top down data
+    bw.BlockCopyArray(data.data);
+
+    //RGBA -> BGRA
+    let buffer = bw.GetBuffer();
+    for(let i = imgDataIndex; i < buffer.length; i += 4){
+        //Swap R & B;
+        let temp = buffer[i];
+        buffer[i] = buffer[i + 2];
+        buffer[i + 2] = temp;
+    }
+
+    let bmp = new Blob([buffer.buffer], {type:"image/bmp"});
+    return URL.createObjectURL(bmp);
 }
 

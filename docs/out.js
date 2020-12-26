@@ -14,7 +14,12 @@ var __extends = (this && this.__extends) || (function () {
 define("Utility", ["require", "exports", "Collections"], function (require, exports, Collections_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.UniqueRandom = exports.Fill2DRect = exports.HashItems = exports.Sum = exports.Max = exports.Swap = exports.Zip = exports.Fill2DObj = exports.FillObj = exports.Memset = exports.Fill = void 0;
+    exports.UniqueRandom = exports.Fill2DRect = exports.HashItems = exports.Sum = exports.Max = exports.Swap = exports.Zip = exports.Fill2DObj = exports.FillObj = exports.Memset = exports.Fill = exports.PerfectlyDivisible = void 0;
+    function PerfectlyDivisible(val, divisor) {
+        var div = val / divisor;
+        return Math.floor(val) == val;
+    }
+    exports.PerfectlyDivisible = PerfectlyDivisible;
     function Fill(length, value) {
         var arr = new Array(length);
         for (var i = 0; i < arr.length; i++) {
@@ -602,7 +607,7 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
         var nodes = network.nodes;
         var active = new DS.LabelledCircularQueue();
         var activeEdge = Util.Fill(nodes.length, 0);
-        var flags = Util.Fill(nodes.length, TreeFlag.Free);
+        var flags = new Uint8Array(nodes.length);
         var parents = Util.Fill(nodes.length, NULL_PARENT);
         var edgeToParent = Util.Fill(nodes.length, null);
         var orphans = [];
@@ -620,7 +625,7 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
         }
         var sourceOutflux = function () { return Util.Sum(nodes[src].edgesOut.map(function (e) { return e.flow; })); };
         var STreeIndices = function () {
-            return flags
+            return Array.from(flags)
                 .map(function (f, ind) { return [f, ind]; })
                 .filter(function (t) { return t[0] == TreeFlag.S; })
                 .map(function (t) { return t[1]; });
@@ -952,6 +957,45 @@ define("ClusterGenerator", ["require", "exports", "Utility", "Matrix"], function
     }
     exports.UniformClusters = UniformClusters;
 });
+define("ConvergenceChecker", ["require", "exports"], function (require, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.ConvergenceChecker = void 0;
+    var ConvergenceChecker = (function () {
+        function ConvergenceChecker(minPercentChange, maxIter) {
+            this.maxIter = 0;
+            this.iterCount = 0;
+            this.lastObjFnValue = null;
+            this.minChange = 1;
+            this.maxIter = maxIter;
+            this.minChange = minPercentChange / 100;
+        }
+        ConvergenceChecker.prototype.hasConverged = function (objFnValue, iter) {
+            if (iter === void 0) { iter = -1; }
+            this.iterCount = (iter < 0) ? this.iterCount + 1 : iter;
+            if (this.iterCount >= this.maxIter)
+                return true;
+            if (this.lastObjFnValue == null) {
+                this.lastObjFnValue = objFnValue;
+                return false;
+            }
+            else {
+                var diff = Math.abs(objFnValue - this.lastObjFnValue);
+                var denominator = Math.abs(objFnValue);
+                this.lastObjFnValue = objFnValue;
+                if (denominator == 0)
+                    return false;
+                var fractionalChange = (diff / denominator);
+                return fractionalChange < this.minChange;
+            }
+        };
+        ConvergenceChecker.prototype.getCurrentIter = function () {
+            return this.iterCount;
+        };
+        return ConvergenceChecker;
+    }());
+    exports.ConvergenceChecker = ConvergenceChecker;
+});
 define("DinicFlowSolver", ["require", "exports", "Utility", "Collections"], function (require, exports, Util, DS) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -1185,7 +1229,7 @@ define("DinicFlowSolver", ["require", "exports", "Utility", "Collections"], func
         };
     };
 });
-define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections"], function (require, exports, Util, Mat, Collections_2) {
+define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections", "ConvergenceChecker"], function (require, exports, Util, Mat, Collections_2, Conv) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.Fit = exports.Initializer = exports.KMeansResult = void 0;
@@ -1208,6 +1252,7 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections"], fun
                 }
             });
             this.meanDist = distAcc / nElems;
+            return this.meanDist;
         };
         return KMeansResult;
     }());
@@ -1222,8 +1267,9 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections"], fun
         var firstIndex = Math.floor(Math.random() * (data.length - 1));
         selected.Set(firstIndex, true);
         var centres = [data[firstIndex]];
+        var prob = new Array(data.length);
+        var cumProb = new Array(data.length);
         while (centres.length < nClusters) {
-            var prob = Util.Fill(data.length, 0);
             for (var i = 0; i < data.length; i++) {
                 var minDist = Number.MAX_VALUE;
                 for (var c = 0; c < centres.length; c++) {
@@ -1235,7 +1281,6 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections"], fun
                 }
                 prob[i] = minDist;
             }
-            var cumProb = Util.Fill(data.length, 0);
             var acc = 0;
             for (var i = 0; i < prob.length; i++) {
                 acc += prob[i];
@@ -1257,11 +1302,11 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections"], fun
         }
         return centres;
     }
-    function Fit(data, nClusters, nIter, init) {
+    function Fit(data, nClusters, nIter, minPercentChange, init) {
         if (nIter === void 0) { nIter = 100; }
-        if (init === void 0) { init = Initializer.random; }
+        if (minPercentChange === void 0) { minPercentChange = 1; }
+        if (init === void 0) { init = Initializer.KMeansPlusPlus; }
         var _a = Mat.Dimensions(data[0]), nRows = _a[0], nCols = _a[1];
-        var selected = {};
         var means = [];
         if (init == Initializer.random) {
             means = Util.UniqueRandom(nClusters, data.length - 1).map(function (i) { return data[i]; });
@@ -1269,8 +1314,10 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections"], fun
         else {
             means = kMeansPlusPlusInit(nClusters, data);
         }
-        for (var iter = 0; iter < nIter; iter++) {
-            var clusters = GroupToNearestMean(data, means);
+        var conv = new Conv.ConvergenceChecker(minPercentChange, nIter);
+        var result;
+        var clusters = GroupToNearestMean(data, means);
+        do {
             means = clusters.map(function (c) {
                 var acc = Mat.CreateMatrix(nRows, nCols);
                 for (var i = 0; i < c.length; i++) {
@@ -1278,9 +1325,11 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections"], fun
                 }
                 return Mat.Scale(1 / c.length, acc);
             });
-        }
-        var updatedClusters = GroupToNearestMean(data, means);
-        return new KMeansResult(updatedClusters, means);
+            clusters = GroupToNearestMean(data, means);
+            result = new KMeansResult(clusters, means);
+        } while (!conv.hasConverged(result.MeanDistanceToCluster()));
+        console.log("KMeans exited at " + conv.getCurrentIter());
+        return result;
     }
     exports.Fit = Fit;
     function GroupToNearestMean(data, means) {
@@ -1301,7 +1350,7 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections"], fun
         return clusters;
     }
 });
-define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans"], function (require, exports, Util, Mat, KM) {
+define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "ConvergenceChecker"], function (require, exports, Util, Mat, KM, Conv) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.GMM = exports.GMMResult = exports.Initializer = exports.GMMCluster = void 0;
@@ -1418,9 +1467,10 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans"], function (r
                 return new GMMCluster(weights[cIndex], means[cIndex], covariances[cIndex]);
             });
         };
-        GMM.prototype.Fit = function (rawData, nClusters, init, MAX_ITER) {
+        GMM.prototype.Fit = function (rawData, nClusters, init, MAX_ITER, MIN_PERCENT_CHANGE) {
             if (init === void 0) { init = Initializer.KMeansPlusPlus; }
             if (MAX_ITER === void 0) { MAX_ITER = 20; }
+            if (MIN_PERCENT_CHANGE === void 0) { MIN_PERCENT_CHANGE = 1; }
             if (!Mat.IsVector(rawData[0])) {
                 throw new Error("GMM.Fit: Error, data points need to be vectors (ideally column vectors)");
             }
@@ -1435,21 +1485,26 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans"], function (r
                     break;
                 }
                 case Initializer.KMeansPlusPlus: {
-                    var kMeansResult = KM.Fit(data, nClusters, 20, KM.Initializer.KMeansPlusPlus);
+                    var kMeansResult = KM.Fit(data, nClusters, 20, 1, KM.Initializer.KMeansPlusPlus);
                     newClusters = kMeansResult.clusters.map(function (c) { return GMM.Points2GMMCluster(c, data.length); });
                     break;
                 }
             }
-            for (var iter = 0; iter < MAX_ITER; iter++) {
+            var conv = new Conv.ConvergenceChecker(MIN_PERCENT_CHANGE, MAX_ITER);
+            var logProb;
+            do {
                 newClusters = this.EM(data, newClusters);
-                var logProb = GMM.LogLikelihood(data, newClusters);
-                console.log("Iteration:" + iter + ", logProb:" + logProb);
-            }
+                logProb = GMM.LogLikelihood(data, newClusters);
+                console.log("Iteration:" + conv.getCurrentIter() + ", logProb:" + logProb);
+            } while (!conv.hasConverged(logProb));
             this.clusters = newClusters;
         };
         GMM.prototype.Predict = function (rawData) {
             var data = Mat.IsColumnVector(rawData) ? rawData : Mat.Transpose(rawData);
-            var predictions = this.clusters.map(function (c) { return c.Likelihood(data); });
+            var predictions = new Array(this.clusters.length);
+            for (var i = 0; i < predictions.length; i++) {
+                predictions[i] = this.clusters[i].Likelihood(data);
+            }
             return new GMMResult(predictions);
         };
         GMM.LogLikelihood = function (data, gmm) {
@@ -1467,7 +1522,7 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans"], function (r
     }());
     exports.GMM = GMM;
 });
-define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility"], function (require, exports, GMM, BK, Mat, Util) {
+define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", "ConvergenceChecker"], function (require, exports, GMM, BK, Mat, Util, Conv) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.GrabCut = exports.Trimap = void 0;
@@ -1502,8 +1557,9 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility"],
             }
             var _a = GrabCut.SegregatePixels(this.img, this.matte, 0, 0, this.height, this.width), fgPixels = _a[0], bgPixels = _a[1];
             var GMM_N_ITER = 5;
-            this.fgGMM.Fit(fgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
-            this.bgGMM.Fit(bgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER);
+            var MIN_PERCENT_CHANGE = 1;
+            this.fgGMM.Fit(fgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
+            this.bgGMM.Fit(bgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
             var MAX_ITER = 5;
             this.RunIterations(MAX_ITER);
         };
@@ -1512,8 +1568,10 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility"],
             var flowNetwork = new BK.BKNetwork();
             var maxFlowSolver = BK.BKMaxflow;
             var _b = GrabCut.GeneratePixel2PixelGraph(this.img, flowNetwork), networkBase = _b[0], maxCapacity = _b[1];
-            for (var iter = 0; iter < nIter; iter++) {
-                console.log("iter:" + iter);
+            var conv = new Conv.ConvergenceChecker(1, nIter);
+            var energy;
+            do {
+                console.log("iter:" + conv.getCurrentIter());
                 var _c = GrabCut.SegregatePixels(this.img, this.matte, 0, 0, this.height, this.width), fgPixels = _c[0], bgPixels = _c[1];
                 var _d = GrabCut.BinPixels(this.fgGMM, this.bgGMM, bgPixels, fgPixels), fgClusters = _d[0], bgClusters = _d[1];
                 _a = [fgClusters, bgClusters].map(function (mixture) {
@@ -1528,7 +1586,10 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility"],
                 console.log('cut');
                 var fgPixelIndices = flowResult.GetSourcePartition();
                 GrabCut.UpdateMatte(this.matte, this.trimap, fgPixelIndices);
-            }
+                energy = flowResult.GetMaxFlow();
+                console.log("Energy: " + energy);
+                networkCopy = null;
+            } while (!conv.hasConverged(energy));
         };
         GrabCut.prototype.GetAlphaMask = function () {
             var alpha = Mat.CreateMatrix(this.height, this.width);
@@ -1598,35 +1659,53 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility"],
         GrabCut.GeneratePixel2PixelGraph = function (img, network) {
             var height = img.length;
             var width = img[0].length;
-            var nPixels = height * width;
-            for (var i = 0; i < nPixels; i++) {
-                network.CreateNode();
+            {
+                var nPixels = height * width;
+                for (var i = 0; i < nPixels; i++) {
+                    network.CreateNode();
+                }
             }
             var neighbours = [[0, -1], [-1, 0], [0, 1], [1, 0]];
+            var validNeighbour = new Array(neighbours.length);
+            var diffSquareList = new Array(neighbours.length);
             var coeff = neighbours.map(function (t) { return 50 / Math.sqrt(Math.pow(t[0], 2) + Math.pow(t[1], 2)); });
             var maxCap = Number.MIN_VALUE;
-            var _loop_2 = function (r) {
-                var _loop_3 = function (c) {
-                    var nodeIndex = GrabCut.GetArrayIndex(r, c, width);
-                    var adjSet = neighbours
-                        .map(function (t) { return [r + t[0], c + t[1]]; })
-                        .filter(function (t) { return GrabCut.WithinBounds(t[0], t[1], width, height); });
-                    var diffSquare = adjSet
-                        .map(function (t) { return Mat.Sub(img[r][c], img[t[0]][t[1]]); })
-                        .map(function (d) { return Mat.NormSquare(d); });
-                    var meanDifference = Util.Sum(diffSquare) / diffSquare.length;
+            for (var r = 0; r < height; r++) {
+                for (var c = 0; c < width; c++) {
+                    var currentPixel = img[r][c];
+                    var diffSquareAcc = 0;
+                    var nNeighbours = 0;
+                    for (var i = 0; i < neighbours.length; i++) {
+                        var offset = neighbours[i];
+                        var nR = r + offset[0];
+                        var nC = c + offset[1];
+                        validNeighbour[i] = GrabCut.WithinBounds(nR, nC, width, height);
+                        if (!validNeighbour[i])
+                            continue;
+                        var neighbouringPixel = img[nR][nC];
+                        var diffSquare = Mat.NormSquare(Mat.Sub(currentPixel, neighbouringPixel));
+                        diffSquareList[i] = diffSquare;
+                        diffSquareAcc += diffSquare;
+                        nNeighbours++;
+                    }
+                    var meanDifference = diffSquareAcc / nNeighbours;
                     var denominator = (meanDifference > 0) ? (2 * meanDifference) : 100000;
                     var beta = 1 / (2 * denominator);
-                    for (var n = 0; n < adjSet.length; n++) {
-                        var _a = adjSet[n], nR = _a[0], nC = _a[1];
+                    var nodeIndex = GrabCut.GetArrayIndex(r, c, width);
+                    for (var i = 0; i < neighbours.length; i++) {
+                        if (!validNeighbour[i])
+                            continue;
+                        var offset = neighbours[i];
+                        var nR = r + offset[0];
+                        var nC = c + offset[1];
                         var neighbourIndex = GrabCut.GetArrayIndex(nR, nC, width);
-                        var exponent = -beta * diffSquare[n];
-                        var capacity = coeff[n] * Math.exp(exponent);
+                        var exponent = -beta * diffSquareList[i];
+                        var capacity = coeff[i] * Math.exp(exponent);
                         if (isNaN(capacity)) {
                             console.log({
                                 coeff: coeff,
-                                diffSquare: diffSquare,
-                                diffSquareLen: diffSquare.length,
+                                diffSquareList: diffSquareList,
+                                validNeighbour: validNeighbour,
                                 beta: beta,
                                 exponent: exponent,
                                 capacity: capacity
@@ -1635,13 +1714,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility"],
                         network.CreateEdge(nodeIndex, neighbourIndex, capacity);
                         maxCap = (capacity > maxCap) ? capacity : maxCap;
                     }
-                };
-                for (var c = 0; c < width; c++) {
-                    _loop_3(c);
                 }
-            };
-            for (var r = 0; r < height; r++) {
-                _loop_2(r);
             }
             return [network, maxCap];
         };
@@ -1971,7 +2044,7 @@ define("WebPage/FileInput", ["require", "exports"], function (require, exports) 
 define("WebPage/ImageUtil", ["require", "exports", "Matrix", "Utility"], function (require, exports, Mat, Util) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.CreateBWImage = exports.ApplyAlphaMask = exports.ImageData2Mat = exports.Trimap2BW = exports.EmptyImage = exports.Temp2DCanvas = exports.RGBA = void 0;
+    exports.ImgData2URL = exports.ApplyAlphaMaskToImgData = exports.CreateBWImage = exports.ApplyAlphaMask = exports.ImageData2Mat = exports.Trimap2BW = exports.EmptyImage = exports.Temp2DCanvas = exports.RGBA = void 0;
     var RGBA = (function () {
         function RGBA(r, g, b, a) {
             this.red = r;
@@ -2073,7 +2146,8 @@ define("WebPage/ImageUtil", ["require", "exports", "Matrix", "Utility"], functio
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
                 var alphaInd = 4 * (width * y + x) + 3;
-                buffer[alphaInd] = alpha[y][x] * 255;
+                buffer[alphaInd] = 255;
+                alpha[y][x] * 255;
             }
         }
         return c.SetImageData(bufferData);
@@ -2097,6 +2171,115 @@ define("WebPage/ImageUtil", ["require", "exports", "Matrix", "Utility"], functio
         return c.SetImageData(img);
     }
     exports.CreateBWImage = CreateBWImage;
+    function ApplyAlphaMaskToImgData(original, alpha) {
+        var _a = [original.width, original.height], width = _a[0], height = _a[1];
+        var imgCopy = new ImageData(width, height);
+        var buffer = imgCopy.data;
+        buffer.set(original.data);
+        for (var y = 0; y < height; y++) {
+            for (var x = 0; x < width; x++) {
+                var alphaInd = 4 * (width * y + x) + 3;
+                buffer[alphaInd] = alpha[y][x] * 255;
+            }
+        }
+        return imgCopy;
+    }
+    exports.ApplyAlphaMaskToImgData = ApplyAlphaMaskToImgData;
+    var BinaryWriter = (function () {
+        function BinaryWriter(buffer, littleEndian) {
+            this.cursor = 0;
+            this.littleEndian = true;
+            this.buffer = buffer;
+            this.littleEndian = littleEndian;
+            this.view = new DataView(buffer.buffer);
+        }
+        BinaryWriter.prototype.Seek = function (cursor) {
+            this.cursor = cursor;
+        };
+        BinaryWriter.prototype.Cursor = function () {
+            return this.cursor;
+        };
+        BinaryWriter.prototype.WriteInt = function (val) {
+            this.view.setInt32(this.cursor, val, this.littleEndian);
+            this.cursor += 4;
+        };
+        BinaryWriter.prototype.WriteShort = function (val) {
+            this.view.setInt16(this.cursor, val, this.littleEndian);
+            this.cursor += 2;
+        };
+        BinaryWriter.prototype.WriteByte = function (val) {
+            this.view.setUint8(this.cursor, val);
+            this.cursor += 1;
+        };
+        BinaryWriter.prototype.BlockCopyArray = function (source) {
+            this.buffer.set(source, this.cursor);
+            this.cursor += source.length;
+        };
+        BinaryWriter.prototype.GetBuffer = function () {
+            return this.buffer;
+        };
+        return BinaryWriter;
+    }());
+    function ImgData2URL(data) {
+        var _a = [data.width, data.height], width = _a[0], height = _a[1];
+        var headerSize = 14;
+        var infoHeaderSize = 108;
+        var imgDataSize = width * height * 4;
+        var totalSize = imgDataSize + infoHeaderSize + headerSize;
+        var bw = new BinaryWriter(new Uint8Array(totalSize), true);
+        bw.WriteByte(0x42);
+        bw.WriteByte(0x4D);
+        bw.WriteInt(totalSize);
+        bw.WriteShort(0);
+        bw.WriteShort(0);
+        var imgDataIndex = headerSize + infoHeaderSize;
+        bw.WriteInt(imgDataIndex);
+        bw.WriteInt(infoHeaderSize);
+        bw.WriteInt(width);
+        bw.WriteInt(-height);
+        bw.WriteShort(1);
+        var bitsPerPixel = 32;
+        bw.WriteShort(bitsPerPixel);
+        var BI_RGB = 0;
+        var BI_BITFIELDS = 3;
+        bw.WriteInt(BI_BITFIELDS);
+        bw.WriteInt(imgDataSize);
+        var inchesPerMetre = 39;
+        var hRes = 72 * inchesPerMetre;
+        var vRes = 72 * inchesPerMetre;
+        bw.WriteInt(hRes);
+        bw.WriteInt(vRes);
+        var nColours = 0;
+        bw.WriteInt(nColours);
+        var importantColours = 0;
+        bw.WriteInt(importantColours);
+        var R_MASK = 0x00FF0000;
+        var G_MASK = 0x0000FF00;
+        var B_MASK = 0x000000FF;
+        var A_MASK = 0xFF000000;
+        bw.WriteInt(R_MASK);
+        bw.WriteInt(G_MASK);
+        bw.WriteInt(B_MASK);
+        bw.WriteInt(A_MASK);
+        var LCS_DEVICE_RGB = 1;
+        bw.WriteInt(LCS_DEVICE_RGB);
+        var CIEXYZTRIPLE_SIZE = 36;
+        for (var i = 0; i < CIEXYZTRIPLE_SIZE; i++)
+            bw.WriteByte(0);
+        bw.WriteInt(0);
+        bw.WriteInt(0);
+        bw.WriteInt(0);
+        bw.BlockCopyArray(data.data);
+        var buffer = bw.GetBuffer();
+        for (var i = imgDataIndex; i < buffer.length; i += 4) {
+            var temp = buffer[i];
+            buffer[i] = buffer[i + 2];
+            buffer[i + 2] = temp;
+        }
+        var bmp = new Blob([buffer.buffer], { type: "image/bmp" });
+        return URL.createObjectURL(bmp);
+    }
+    exports.ImgData2URL = ImgData2URL;
 });
 define("WebPage/PreviewView", ["require", "exports", "WebPage/ImageUtil"], function (require, exports, IMUtil) {
     "use strict";
@@ -2128,7 +2311,7 @@ define("WebPage/PreviewView", ["require", "exports", "WebPage/ImageUtil"], funct
             this.img.src = (src != null) ? src : IMUtil.EmptyImage();
             if (src != null) {
                 this.download.setAttribute("href", src);
-                this.download.setAttribute("download", (showAlphaMask) ? "mask" : "cropped");
+                this.download.setAttribute("download", (showAlphaMask) ? "mask.bmp" : "cropped.bmp");
             }
             else {
                 this.download.removeAttribute("href");
@@ -2400,7 +2583,8 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
             cut.SetTrimap(trimap, width, height);
             cut.BeginCrop();
             var mask = cut.GetAlphaMask();
-            this.croppedImage = ImgUtil.ApplyAlphaMask(this.originalImageData, mask);
+            var alphaApplied = ImgUtil.ApplyAlphaMaskToImgData(this.originalImageData, mask);
+            this.croppedImage = ImgUtil.ImgData2URL(alphaApplied);
             this.croppedImageAlpha = ImgUtil.CreateBWImage(mask);
             this.preview.Draw();
         };

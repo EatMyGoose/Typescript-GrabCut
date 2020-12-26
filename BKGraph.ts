@@ -50,7 +50,6 @@ export class BKNetwork implements FlowBase.IFlowNetwork {
     CreateEdge(source: number, dest: number, capacity: number): void {
         if(isNaN(capacity)) throw new Error("capacity cannot be NaN");
         
-        //capacity = Math.floor(capacity);
         let edge = new BKEdge(source, dest, capacity, this.edges.length);
         this.edges.push(edge);
         this.nodes[source].edgesOut.push(edge);
@@ -87,7 +86,7 @@ const NULL_PARENT = -1;
 //Returns null if no path is found
 //Returned Edge: from(source) -> to(sink)
 //The edge represents the connection between the source and sink trees
-function BKGrow(nodes: BKNode[], active: DS.IQueue<number>, flags: TreeFlag[], parents: number[], edgeToParent: BKEdge[], activeEdge:number[]): BKEdge | null {
+function BKGrow(nodes: BKNode[], active: DS.IQueue<number>, flags: Uint8Array, parents: number[], edgeToParent: BKEdge[], activeEdge:number[]): BKEdge | null {
 
     while (active.Count() > 0) {
         let nInd = active.Peek();
@@ -247,7 +246,7 @@ function LinkedToSink(nodeInd: number, sinkInd: number, parents: number[], edgeT
     return true;
 }
 
-function BKAdopt(nodes: BKNode[], orphanSet: number[], flags: TreeFlag[], parents: number[], edgeToParent: BKEdge[], activeSet: DS.LabelledCircularQueue<number>, src: number, sink: number) {
+function BKAdopt(nodes: BKNode[], orphanSet: number[], flags: Uint8Array, parents: number[], edgeToParent: BKEdge[], activeSet: DS.LabelledCircularQueue<number>, src: number, sink: number) {
     while (orphanSet.length > 0) {
         let ind = orphanSet.pop();
         let orphanNode = nodes[ind];
@@ -362,7 +361,8 @@ BKMaxflow = function (src: number, sink: number, network: BKNetwork): FlowBase.I
 
     let active = new DS.LabelledCircularQueue<number>();
     let activeEdge = Util.Fill<number>(nodes.length, 0);
-    let flags: TreeFlag[] = Util.Fill<TreeFlag>(nodes.length, TreeFlag.Free);
+    //let flags: Uint8Array = Util.Fill<TreeFlag>(nodes.length, TreeFlag.Free);
+    let flags: Uint8Array = new Uint8Array(nodes.length); //default to 0, i.e. TreeFlag.Free
     let parents: number[] = Util.Fill<number>(nodes.length, NULL_PARENT);
     //path: stores the edge that leads to the parent, used for finding the augmenting path
     let edgeToParent: BKEdge[] = Util.Fill<BKEdge>(nodes.length, null);
@@ -394,7 +394,7 @@ BKMaxflow = function (src: number, sink: number, network: BKNetwork): FlowBase.I
 
     let sourceOutflux = () => Util.Sum(nodes[src].edgesOut.map(e => e.flow));
     let STreeIndices = () =>
-        flags
+        Array.from(flags)
             .map((f, ind) => [f, ind])
             .filter(t => t[0] == TreeFlag.S)
             .map(t => t[1]);

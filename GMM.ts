@@ -1,6 +1,7 @@
 import * as Util from "./Utility";
 import * as Mat from "./Matrix";
 import * as KM from "./KMeans";
+import * as Conv from "./ConvergenceChecker";
 
 //TODO: write selectable intializer for GMM
 
@@ -167,7 +168,7 @@ export class GMM {
         });
     }
 
-    Fit(rawData:Mat.Matrix[], nClusters:number, init:Initializer = Initializer.KMeansPlusPlus, MAX_ITER:number = 20):void{
+    Fit(rawData:Mat.Matrix[], nClusters:number, init:Initializer = Initializer.KMeansPlusPlus, MAX_ITER:number = 20, MIN_PERCENT_CHANGE:number = 1):void{
         if(!Mat.IsVector(rawData[0])){
             throw new Error(`GMM.Fit: Error, data points need to be vectors (ideally column vectors)`);
         }
@@ -187,24 +188,30 @@ export class GMM {
                 break;
             }
             case Initializer.KMeansPlusPlus:{
-                let kMeansResult = KM.Fit(data, nClusters, 20, KM.Initializer.KMeansPlusPlus);
+                let kMeansResult = KM.Fit(data, nClusters, 20, 1, KM.Initializer.KMeansPlusPlus);
                 newClusters = kMeansResult.clusters.map(c => GMM.Points2GMMCluster(c, data.length)); 
                 break;
             }
         }
 
         //EM-Iteration
-        for(let iter = 0; iter < MAX_ITER; iter++){
-            newClusters = this.EM(data, newClusters); 
-            let logProb = GMM.LogLikelihood(data, newClusters); 
-            console.log(`Iteration:${iter}, logProb:${logProb}`);
-        }
+        let conv = new Conv.ConvergenceChecker(MIN_PERCENT_CHANGE, MAX_ITER);
+        let logProb:number;
+        do{
+            newClusters = this.EM(data, newClusters);  
+            logProb = GMM.LogLikelihood(data, newClusters); 
+            console.log(`Iteration:${conv.getCurrentIter()}, logProb:${logProb}`);
+        }while(!conv.hasConverged(logProb));
+
         this.clusters = newClusters;
     }
 
     Predict(rawData:Mat.Matrix):GMMResult{
         let data = Mat.IsColumnVector(rawData)? rawData : Mat.Transpose(rawData);
-        let predictions = this.clusters.map(c => c.Likelihood(data));
+        let predictions = new Array(this.clusters.length);
+        for(let i = 0; i < predictions.length; i++){
+            predictions[i] = this.clusters[i].Likelihood(data);
+        }
         return new GMMResult(predictions);
     }
 

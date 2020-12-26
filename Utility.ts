@@ -1,5 +1,10 @@
 import { Dictionary, dictKey } from "./Collections";
 
+export function PerfectlyDivisible(val:number, divisor:number):boolean{
+    let div = val / divisor;
+    return Math.floor(val) == val;
+}
+
 export function Fill<T>(length: number, value: T): T[] {
     let arr = new Array(length);
     for (let i = 0; i < arr.length; i++) {

@@ -41,7 +41,7 @@ export class PreviewView{
 
         if(src != null){
             this.download.setAttribute("href", src);
-            this.download.setAttribute("download", (showAlphaMask)? "mask": "cropped");
+            this.download.setAttribute("download", (showAlphaMask)? "mask.bmp": "cropped.bmp");
         }else{
             this.download.removeAttribute("href");
         }
