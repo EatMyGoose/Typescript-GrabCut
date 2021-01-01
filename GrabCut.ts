@@ -16,6 +16,11 @@ export enum Trimap {
     Unknown = 2
 }
 
+export interface Options{
+    tolerance:number, //in %
+    maxIterations:number 
+}
+
 export class GrabCut {
     private height: number;
     private width: number;
@@ -45,7 +50,7 @@ export class GrabCut {
     }
 
     //Returns the alpha mask
-    BeginCrop() {
+    BeginCrop(opt:Options) {
         for (let i = 0; i < this.trimap.length; i++) {
             this.matte[i] = (this.trimap[i] == Trimap.Background) ? Trimap.Background : Trimap.Foreground;
         }
@@ -58,11 +63,11 @@ export class GrabCut {
         this.fgGMM.Fit(fgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
         this.bgGMM.Fit(bgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
 
-        let MAX_ITER = 5;
-        this.RunIterations(MAX_ITER);
+        let MAX_ITER = 10;
+        this.RunIterations(opt.maxIterations, opt.tolerance);
     }
 
-    RunIterations(nIter: number) {
+    RunIterations(nIter: number, tolerancePercent:number) {
         //Create network graph (with edges between neighbouring pixels set)
         //Clone this network & populate with source and sink for use in the graphcut.
         let flowNetwork: FlowBase.IFlowNetwork = new BK.BKNetwork();//new Dinic.DinicNetwork();;
@@ -71,7 +76,7 @@ export class GrabCut {
         let [network, maxCapacity] = GrabCut.GeneratePixel2PixelGraph(this.img, flowNetwork);
         let [srcNode, sinkNode] = GrabCut.InitSourceAndSink(network, this.width, this.height);
 
-        let conv = new Conv.ConvergenceChecker(1, nIter);
+        let conv = new Conv.ConvergenceChecker(tolerancePercent, nIter);
         let energy: number;
 
         do {
@@ -92,6 +97,7 @@ export class GrabCut {
             console.log(`fg clusters:${this.fgGMM.clusters.length}, bg clusters:${this.bgGMM.clusters.length}`);
 
             GrabCut.UpdateSourceAndSink(network, maxCapacity, this.fgGMM, this.bgGMM, this.img, this.trimap, srcNode, sinkNode);
+            network.ResetFlow();
 
             console.log('max flow');
             let flowResult = maxFlowSolver(srcNode, sinkNode, network);

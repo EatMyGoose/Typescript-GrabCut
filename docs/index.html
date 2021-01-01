@@ -41,7 +41,7 @@
                     </br>
                     <label for="range-brush-size">Brush Size:</label>
                     <input id="range-brush-size" type="range" min="1" max="50" step="1" value="20"></input>
-                    
+
                     </br>
                     <p>Undo: Ctrl + Z</p>
                     </br>
@@ -50,6 +50,23 @@
                     <p><span class="blue">Blue</span>:Background, <span class="red">Red</span>:Foreground, Unmarked:
                         Unknown (will be managed by the GrabCut algorithm)</p>
 
+                </div>
+                <br>
+                <div id="Fine Tuning">
+                    <h3>Advanced Settings:</h3>
+                    <div>
+                        <label for="text-max-iter">Max GrabCut Iterations:</label>
+                        <br>
+                        <input id="text-max-iter" class="tb-small" data-default="5" data-err-class="error" value="5" type="number" min="1" max="10"></input>
+                    </div>
+
+                    <div>
+                        <label for="text-iter-convergence">GrabCut Convergence Criteria (% Energy difference between
+                            iterations):</label>
+                        <br>
+                        <input id="text-iter-convergence" class="tb-small" data-default="1" data-err-class="error" value="1" type="number" min="0" max="100"
+                            step="0.2"></input>
+                    </div>
                 </div>
             </div>
             <div class="flex-child">

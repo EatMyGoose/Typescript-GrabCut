@@ -16,12 +16,15 @@ let download = <HTMLAnchorElement>document.getElementById("a-download");
 let radiusRange = <HTMLInputElement>document.getElementById("range-brush-size");
 let brushRadioBtns = <HTMLInputElement[]>Array.from(document.getElementsByName("brush"));
 
+let optMaxIter = new ValidatedTextbox("text-max-iter");
+let optTolerance = new ValidatedTextbox("text-iter-convergence");
+
 let file = new FileInput("file-image");
 
 let view = new CanvasView(imgCanvas, editCanvas);
 let previewView = new PreviewView(previewImg, btnAlpha, btnImage, download);
 let model = new Model();
-let controller = new Controller(file, imgCanvas, cropBtn, brushRadioBtns, radiusRange);
+let controller = new Controller(file, imgCanvas, cropBtn, brushRadioBtns, radiusRange, optMaxIter, optTolerance);
 
 view.AttachModel(model);
 

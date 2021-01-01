@@ -61,15 +61,25 @@ export class Controller {
     brushRadioBtns: HTMLInputElement[];
     radiusRange: HTMLInputElement;
 
+    optMaxIter: ValidatedTextbox;
+    optTolerance: ValidatedTextbox;
+
     private toolHandler: Tools.IToolHandler = null;
     private debounce: MouseDebounce = new MouseDebounce();
 
-    constructor(file: File.FileInput, canvas: HTMLCanvasElement, cropBtn: HTMLInputElement, brushRadioBtns: HTMLInputElement[], radiusRange: HTMLInputElement) {
+    constructor(
+        file: File.FileInput, canvas: HTMLCanvasElement, 
+        cropBtn: HTMLInputElement, brushRadioBtns: HTMLInputElement[], 
+        radiusRange: HTMLInputElement,
+        maxIter:ValidatedTextbox, tolerance:ValidatedTextbox) {
+
         this.file = file;
         this.canvas = canvas;
         this.cropBtn = cropBtn;
         this.brushRadioBtns = brushRadioBtns;
         this.radiusRange = radiusRange;
+        this.optMaxIter = maxIter;
+        this.optTolerance = tolerance;
 
         canvas.addEventListener("mousedown", this.begin.bind(this));
         canvas.addEventListener("mousemove", this.drag.bind(this));
@@ -95,7 +105,10 @@ export class Controller {
     }
 
     private triggerGrabCut() {
-        this.model.StartGrabCut();
+        let maxIter = this.optMaxIter.GetValue();
+        let tol = this.optTolerance.GetValue();
+        console.log(`max:${maxIter}, tolerance:${tol}`);
+        this.model.StartGrabCut(maxIter, tol);
     }
 
     private GetSelectedBrush(): ToolActions {

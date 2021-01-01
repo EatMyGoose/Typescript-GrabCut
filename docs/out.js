@@ -1,3 +1,4 @@
+"use strict";
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
         extendStatics = Object.setPrototypeOf ||
@@ -1562,7 +1563,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
                 }
             }
         };
-        GrabCut.prototype.BeginCrop = function () {
+        GrabCut.prototype.BeginCrop = function (opt) {
             for (var i = 0; i < this.trimap.length; i++) {
                 this.matte[i] = (this.trimap[i] == Trimap.Background) ? Trimap.Background : Trimap.Foreground;
             }
@@ -1571,16 +1572,16 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             var MIN_PERCENT_CHANGE = 1;
             this.fgGMM.Fit(fgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
             this.bgGMM.Fit(bgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
-            var MAX_ITER = 5;
-            this.RunIterations(MAX_ITER);
+            var MAX_ITER = 10;
+            this.RunIterations(opt.maxIterations, opt.tolerance);
         };
-        GrabCut.prototype.RunIterations = function (nIter) {
+        GrabCut.prototype.RunIterations = function (nIter, tolerancePercent) {
             var _a;
             var flowNetwork = new BK.BKNetwork();
             var maxFlowSolver = BK.BKMaxflow;
             var _b = GrabCut.GeneratePixel2PixelGraph(this.img, flowNetwork), network = _b[0], maxCapacity = _b[1];
             var _c = GrabCut.InitSourceAndSink(network, this.width, this.height), srcNode = _c[0], sinkNode = _c[1];
-            var conv = new Conv.ConvergenceChecker(1, nIter);
+            var conv = new Conv.ConvergenceChecker(tolerancePercent, nIter);
             var energy;
             do {
                 console.log("iter:" + conv.getCurrentIter());
@@ -1592,6 +1593,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
                 }), this.fgGMM = _a[0], this.bgGMM = _a[1];
                 console.log("fg clusters:" + this.fgGMM.clusters.length + ", bg clusters:" + this.bgGMM.clusters.length);
                 GrabCut.UpdateSourceAndSink(network, maxCapacity, this.fgGMM, this.bgGMM, this.img, this.trimap, srcNode, sinkNode);
+                network.ResetFlow();
                 console.log('max flow');
                 var flowResult = maxFlowSolver(srcNode, sinkNode, network);
                 console.log('cut');
@@ -2602,13 +2604,13 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
             }
             return trimap;
         };
-        Model.prototype.StartGrabCut = function () {
+        Model.prototype.StartGrabCut = function (maxIter, tolerance) {
             var _a = this.GetImageDim(), width = _a[0], height = _a[1];
             var img = ImgUtil.ImageData2Mat(this.originalImageData);
             var cut = new Cut.GrabCut(img);
             var trimap = this.GetTrimap();
             cut.SetTrimap(trimap, width, height);
-            cut.BeginCrop();
+            cut.BeginCrop({ tolerance: tolerance, maxIterations: maxIter });
             var mask = cut.GetAlphaMask();
             var alphaApplied = ImgUtil.ApplyAlphaMaskToImgData(this.originalImageData, mask);
             this.croppedImage = ImgUtil.ImgData2URL(alphaApplied);
@@ -2798,7 +2800,7 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Camera", "WebPage/M
         return MouseDebounce;
     }());
     var Controller = (function () {
-        function Controller(file, canvas, cropBtn, brushRadioBtns, radiusRange) {
+        function Controller(file, canvas, cropBtn, brushRadioBtns, radiusRange, maxIter, tolerance) {
             this.toolHandler = null;
             this.debounce = new MouseDebounce();
             this.file = file;
@@ -2806,6 +2808,8 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Camera", "WebPage/M
             this.cropBtn = cropBtn;
             this.brushRadioBtns = brushRadioBtns;
             this.radiusRange = radiusRange;
+            this.optMaxIter = maxIter;
+            this.optTolerance = tolerance;
             canvas.addEventListener("mousedown", this.begin.bind(this));
             canvas.addEventListener("mousemove", this.drag.bind(this));
             canvas.addEventListener("mouseup", this.end.bind(this));
@@ -2824,7 +2828,10 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Camera", "WebPage/M
             });
         };
         Controller.prototype.triggerGrabCut = function () {
-            this.model.StartGrabCut();
+            var maxIter = this.optMaxIter.GetValue();
+            var tol = this.optTolerance.GetValue();
+            console.log("max:" + maxIter + ", tolerance:" + tol);
+            this.model.StartGrabCut(maxIter, tol);
         };
         Controller.prototype.GetSelectedBrush = function () {
             var _this = this;
@@ -2907,11 +2914,13 @@ define("WebPage/PageMain", ["require", "exports", "WebPage/FileInput", "WebPage/
     var download = document.getElementById("a-download");
     var radiusRange = document.getElementById("range-brush-size");
     var brushRadioBtns = Array.from(document.getElementsByName("brush"));
+    var optMaxIter = new ValidatedTextbox("text-max-iter");
+    var optTolerance = new ValidatedTextbox("text-iter-convergence");
     var file = new FileInput_1.FileInput("file-image");
     var view = new CanvasView_1.CanvasView(imgCanvas, editCanvas);
     var previewView = new PreviewView_1.PreviewView(previewImg, btnAlpha, btnImage, download);
     var model = new Model_2.Model();
-    var controller = new Controller_1.Controller(file, imgCanvas, cropBtn, brushRadioBtns, radiusRange);
+    var controller = new Controller_1.Controller(file, imgCanvas, cropBtn, brushRadioBtns, radiusRange, optMaxIter, optTolerance);
     view.AttachModel(model);
     previewView.AttachModel(model);
     previewView.AttachEditorView(view);
@@ -2922,4 +2931,77 @@ define("WebPage/PageMain", ["require", "exports", "WebPage/FileInput", "WebPage/
     console.log("Main loaded");
     console.log("PageMain loaded");
 });
+var ErrorType;
+(function (ErrorType) {
+    ErrorType[ErrorType["Low"] = 0] = "Low";
+    ErrorType[ErrorType["High"] = 1] = "High";
+    ErrorType[ErrorType["NaN"] = 2] = "NaN";
+    ErrorType[ErrorType["None"] = 3] = "None";
+})(ErrorType || (ErrorType = {}));
+var ValidatedTextbox = (function () {
+    function ValidatedTextbox(id) {
+        this.min = Number.MIN_SAFE_INTEGER;
+        this.max = Number.MAX_SAFE_INTEGER;
+        this.default = 0;
+        this.tb = document.getElementById(id);
+        if (!this.tb) {
+            throw new Error("Missing input element:" + id);
+        }
+        this.default = this.parseAttrAsFloat("data-default");
+        this.errClassName = this.tb.getAttribute("data-err-class");
+        this.min = this.parseAttrAsFloat("min");
+        this.max = this.parseAttrAsFloat("max");
+        this.tb.addEventListener("input", this.CheckInput.bind(this));
+    }
+    ValidatedTextbox.Validate = function (raw, max, min) {
+        var parsed = parseFloat(raw);
+        if (isNaN(parsed))
+            return ErrorType.NaN;
+        if (parsed > max)
+            return ErrorType.High;
+        if (parsed < min)
+            return ErrorType.Low;
+        return ErrorType.None;
+    };
+    ValidatedTextbox.prototype.CheckInput = function () {
+        var error = ValidatedTextbox.Validate(this.tb.value, this.max, this.min);
+        if (error != ErrorType.None) {
+            this.tb.classList.add(this.errClassName);
+        }
+        else {
+            this.tb.classList.remove(this.errClassName);
+        }
+        this.tb.value = this.tb.value;
+    };
+    ValidatedTextbox.prototype.parseAttrAsFloat = function (attributeName) {
+        var str = this.tb.getAttribute(attributeName);
+        var parsed = parseFloat(str);
+        var successful = !isNaN(parsed);
+        if (!successful) {
+            throw new Error("Error parsing attribute " + attributeName + " (value:" + str + ") as a number");
+        }
+        return parsed;
+    };
+    ValidatedTextbox.prototype.GetValue = function () {
+        var err = ValidatedTextbox.Validate(this.tb.value, this.max, this.min);
+        switch (err) {
+            case ErrorType.None: {
+                return parseFloat(this.tb.value);
+            }
+            case ErrorType.NaN: {
+                return this.default;
+            }
+            case ErrorType.High: {
+                return this.max;
+            }
+            case ErrorType.Low: {
+                return this.min;
+            }
+            default: {
+                throw new Error("Argument out of range");
+            }
+        }
+    };
+    return ValidatedTextbox;
+}());
 //# sourceMappingURL=out.js.map

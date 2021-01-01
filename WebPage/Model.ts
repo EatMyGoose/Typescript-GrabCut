@@ -169,14 +169,14 @@ export class Model {
         return trimap;
     }
 
-    StartGrabCut(this: Model): void {
+    StartGrabCut(this: Model, maxIter:number, tolerance:number): void {
         let [width, height] = this.GetImageDim();
         let img = ImgUtil.ImageData2Mat(this.originalImageData);
         let cut = new Cut.GrabCut(img);
         let trimap = this.GetTrimap();
         
         cut.SetTrimap(trimap, width, height);
-        cut.BeginCrop();
+        cut.BeginCrop({tolerance:tolerance, maxIterations:maxIter});
 
         let mask = cut.GetAlphaMask();
         //this.croppedImage = ImgUtil.ApplyAlphaMask(this.originalImageData, mask);

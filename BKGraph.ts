@@ -94,29 +94,6 @@ export class BKNetwork implements FlowBase.IFlowNetwork {
         }
 
         return clone;
-        /*
-        let edgeCopy = new Array(this.edges.length);
-        for (let i = 0; i < edgeCopy.length; i++) {
-            let original = this.edges[i];
-            let clonedEdge = new BKEdge(original.from, original.to, original.cap);
-            clonedEdge.flow = original.flow;
-            edgeCopy[i] = clonedEdge;
-        }
-
-        let nodeCopy = new Array(this.nodes.length);
-        for (let i = 0; i < nodeCopy.length; i++) {
-            let originalNode = this.nodes[i];
-            let clonedNode = new BKNode();
-            clonedNode.edgesOut = originalNode.edgesOut.map(e => edgeCopy[e.ind]);
-            clonedNode.edgesIn = originalNode.edgesIn.map(e => edgeCopy[e.ind]);
-            nodeCopy[i] = clonedNode;
-        }
-
-        let clonedNetwork = new BKNetwork();
-        clonedNetwork.nodes = nodeCopy;
-        clonedNetwork.edges = edgeCopy;
-        return clonedNetwork;
-        */
     }
 }
 
