@@ -4,10 +4,49 @@ import { FGColour, BGColour, Model } from "./Model";
 import { CanvasView } from "./CanvasView";
 import * as Tools from "./ToolHandler";
 
-interface ToolActions{
-    name:string,
-    drawHandlerFactory: ()=> Tools.IToolHandler, 
-    init:()=>void //Stuff that should be done before drawing starts
+interface ToolActions {
+    name: string,
+    drawHandlerFactory: () => Tools.IToolHandler,
+    init: () => void //Stuff that should be done before drawing starts
+}
+
+const LEFT_CLICK_FLAG = 1;
+const RIGHT_CLICK_FLAG = 2;
+
+const LEFT_CLICK_SINGLE = 0;
+const RIGHT_CLICK_SINGLE = 2;
+
+class MouseDebounce {
+    private MIN_DIST = 2;
+    private MIN_MILLIS = 100;
+    private lastTime = 0;
+    private lastX: number = 0;
+    private lastY: number = 0;
+    constructor() {
+
+    }
+
+    BeginMovement(x: number, y: number) {
+        this.lastTime = window.performance.now();
+        this.lastX = x;
+        this.lastY = y;
+    }
+
+    AllowUpdate(x: number, y: number): boolean {
+        let currentMillis = window.performance.now();
+        let diff = currentMillis - this.lastTime;
+
+        let dist = Math.sqrt((this.lastX - x) ** 2 + (this.lastY - y) ** 2);
+
+        if (diff > this.MIN_MILLIS ||
+            dist > this.MIN_DIST) {
+
+            this.BeginMovement(x, y);
+            return true;
+        } else {
+            return false;
+        }
+    }
 }
 
 export class Controller {
@@ -23,8 +62,9 @@ export class Controller {
     radiusRange: HTMLInputElement;
 
     private toolHandler: Tools.IToolHandler = null;
+    private debounce: MouseDebounce = new MouseDebounce();
 
-    constructor(file: File.FileInput, canvas: HTMLCanvasElement, cropBtn: HTMLInputElement, brushRadioBtns:HTMLInputElement[], radiusRange: HTMLInputElement) {
+    constructor(file: File.FileInput, canvas: HTMLCanvasElement, cropBtn: HTMLInputElement, brushRadioBtns: HTMLInputElement[], radiusRange: HTMLInputElement) {
         this.file = file;
         this.canvas = canvas;
         this.cropBtn = cropBtn;
@@ -34,6 +74,9 @@ export class Controller {
         canvas.addEventListener("mousedown", this.begin.bind(this));
         canvas.addEventListener("mousemove", this.drag.bind(this));
         canvas.addEventListener("mouseup", this.end.bind(this));
+
+        //Disable right click menu on the canvas so the right click can be used for panning
+        canvas.addEventListener("contextmenu", e => e.preventDefault());
 
         document.addEventListener("keydown", this.Undo.bind(this));
 
@@ -55,7 +98,7 @@ export class Controller {
         this.model.StartGrabCut();
     }
 
-    private GetSelectedBrush(): ToolActions{
+    private GetSelectedBrush(): ToolActions {
         //UI: Red for FG, Blue for BG, transparent for unknown
         let brushRadius = parseFloat(this.radiusRange.value);
         //tool handler factories
@@ -65,14 +108,14 @@ export class Controller {
         let eraseHandlerFactory = () => new Tools.SegmentToolHandler(brushRadius, "white", true);
 
         //Initialization functions
-        let nil = () => {};
+        let nil = () => { };
         let clearAllSelections = () => this.model.ClearSelection();
 
         let actionMappings: ToolActions[] = [
-            {name:"fg-rect",  drawHandlerFactory:invertedRectFactory, init:clearAllSelections},
-            {name:"fg", drawHandlerFactory:fgSegmentHandlerFactory, init:nil},
-            {name:"bg", drawHandlerFactory:bgSegmentHandlerFactory, init:nil},
-            {name:"erase", drawHandlerFactory:eraseHandlerFactory, init:nil}
+            { name: "fg-rect", drawHandlerFactory: invertedRectFactory, init: clearAllSelections },
+            { name: "fg", drawHandlerFactory: fgSegmentHandlerFactory, init: nil },
+            { name: "bg", drawHandlerFactory: bgSegmentHandlerFactory, init: nil },
+            { name: "erase", drawHandlerFactory: eraseHandlerFactory, init: nil }
         ];
 
         let selected = this.brushRadioBtns.find(btn => btn.checked);
@@ -80,20 +123,26 @@ export class Controller {
         return actions;
     }
 
-    private Undo(this:Controller, e:KeyboardEvent){
-        if(e.ctrlKey && e.key == "z"){
+    private Undo(this: Controller, e: KeyboardEvent) {
+        if (e.ctrlKey && e.key == "z") {
             this.model.UndoLast();
-        }   
+        }
     }
 
-    private Screen2Buffer(canvasPoint:Cam.Point):Cam.Point{
+    private Screen2Buffer(canvasPoint: Cam.Point): Cam.Point {
         let [bufferWidth, bufferHeight] = this.model.GetImageDim();
-        let bufferDim = {x:0,y:0, width:bufferWidth, height:bufferHeight};
+        let bufferDim = { x: 0, y: 0, width: bufferWidth, height: bufferHeight };
         let canvasDim = this.canvasView.GetDrawRegion();
         return Cam.Transform2D(canvasPoint, canvasDim, bufferDim);
     }
 
     private begin(this: Controller, e: MouseEvent) {
+
+        let leftPressed = e.button == LEFT_CLICK_SINGLE;
+        if (!leftPressed) return;
+
+        this.debounce.BeginMovement(e.clientX, e.clientY);
+
         let canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
         let start = this.Screen2Buffer(canvasPoint);
 
@@ -106,23 +155,31 @@ export class Controller {
     }
 
     private drag(this: Controller, e: MouseEvent) {
-        if (this.toolHandler == null) return;
+        let leftDown = e.buttons & LEFT_CLICK_FLAG;
+        
+        if (this.toolHandler == null || !leftDown) return;
+
+        let notBebouncing = this.debounce.AllowUpdate(e.clientX, e.clientY);
+        if(!notBebouncing) return;
 
         let canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
         let point = this.Screen2Buffer(canvasPoint);
 
         let drawCall = this.toolHandler.MouseDrag(point);
-        this.model.UpdateDrawCall(drawCall,false);
+        this.model.UpdateDrawCall(drawCall, false);
     }
 
-    private end(this: Controller, e:MouseEvent) {
-        if(this.toolHandler == null) return;
+    private end(this: Controller, e: MouseEvent) {
+
+        let leftReleased = e.button == LEFT_CLICK_SINGLE;
+
+        if (this.toolHandler == null || !leftReleased) return;
 
         let canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
         let point = this.Screen2Buffer(canvasPoint);
         let drawCall = this.toolHandler.MouseUp(point);
         this.model.UpdateDrawCall(drawCall, true);
-        
+
         //End control of current handler
         this.toolHandler = null;
     }

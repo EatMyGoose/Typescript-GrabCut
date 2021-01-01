@@ -65,10 +65,11 @@ export class GrabCut {
     RunIterations(nIter: number) {
         //Create network graph (with edges between neighbouring pixels set)
         //Clone this network & populate with source and sink for use in the graphcut.
-        let flowNetwork: FlowBase.IFlowNetwork = new BK.BKNetwork();
-        let maxFlowSolver: FlowBase.IMaxFlowSolver = BK.BKMaxflow;
+        let flowNetwork: FlowBase.IFlowNetwork = new BK.BKNetwork();//new Dinic.DinicNetwork();;
+        let maxFlowSolver: FlowBase.IMaxFlowSolver = BK.BKMaxflow;//Dinic.DinicSolver;//;
 
-        let [networkBase, maxCapacity] = GrabCut.GeneratePixel2PixelGraph(this.img, flowNetwork);
+        let [network, maxCapacity] = GrabCut.GeneratePixel2PixelGraph(this.img, flowNetwork);
+        let [srcNode, sinkNode] = GrabCut.InitSourceAndSink(network, this.width, this.height);
 
         let conv = new Conv.ConvergenceChecker(1, nIter);
         let energy: number;
@@ -90,12 +91,10 @@ export class GrabCut {
             });
             console.log(`fg clusters:${this.fgGMM.clusters.length}, bg clusters:${this.bgGMM.clusters.length}`);
 
-            let networkCopy = networkBase.Clone();
-
-            let [fullGraph, source, sink] = GrabCut.AddSourceAndSink(networkCopy, maxCapacity, this.fgGMM, this.bgGMM, this.img, this.trimap);
+            GrabCut.UpdateSourceAndSink(network, maxCapacity, this.fgGMM, this.bgGMM, this.img, this.trimap, srcNode, sinkNode);
 
             console.log('max flow');
-            let flowResult = maxFlowSolver(source, sink, fullGraph);
+            let flowResult = maxFlowSolver(srcNode, sinkNode, network);
 
             console.log('cut');
             let fgPixelIndices = flowResult.GetSourcePartition();
@@ -103,8 +102,6 @@ export class GrabCut {
 
             energy = flowResult.GetMaxFlow();
             console.log(`Energy: ${energy}`);
-
-            networkCopy = null;
         } while (!conv.hasConverged(energy))
         //Done    
         //Alpha mask is now stored in the matte array.
@@ -320,32 +317,56 @@ export class GrabCut {
         return [network, maxCap];
     }
 
+    //Creates edges from the source nodes to the pixels &
+    //edges from the pixel node to the sink node
+    
+    //Returns the [sourceNodeIndex, sinkNodeIndex]
+    private static InitSourceAndSink(network: FlowBase.IFlowNetwork, width:number, height:number):[number,number]{
+        let srcInd = network.CreateNode();
+        let sinkInd = network.CreateNode();
+
+        for (let r = 0; r < height; r++) {
+            for (let c = 0; c < width; c++) {
+                //Src to pixel
+                let pixelNodeInd = GrabCut.GetArrayIndex(r, c, width);
+                network.CreateEdge(srcInd, pixelNodeInd, 0);
+            }
+        }
+
+        for (let r = 0; r < height; r++) {
+            for (let c = 0; c < width; c++) {
+                //Pixel to src
+                let pixelNodeInd = GrabCut.GetArrayIndex(r, c, width);
+                network.CreateEdge(pixelNodeInd, sinkInd, 0);
+            }
+        }
+        return [srcInd, sinkInd];
+    }
+
     //Source node represents the foreground
     //Returns the new network, with the edges connecting the source (FG) and sink (BG) to the pixels added
     //[network, sourceNodeIndex, sinkNodeIndex]
-    private static AddSourceAndSink(
+    private static UpdateSourceAndSink(
         network: FlowBase.IFlowNetwork, maxCap: number,
         gmmFG: GMM.GMM, gmmBG: GMM.GMM,
         image: Mat.Matrix[][],
-        trimap: Uint8Array): [FlowBase.IFlowNetwork, number, number] {
+        trimap: Uint8Array, 
+        srcNode:number, sinkNode:number): void{
 
         let [nRows, nCols] = [image.length, image[0].length];
-
-        let srcNode = network.CreateNode();
-        let sinkNode = network.CreateNode();
 
         for (let r = 0; r < nRows; r++) {
             for (let c = 0; c < nCols; c++) {
                 let ind = GrabCut.GetArrayIndex(r, c, nCols);
                 switch (trimap[ind]) {
                     case Trimap.Foreground: {
-                        network.CreateEdge(srcNode, ind, maxCap);
-
+                        network.UpdateEdge(srcNode, ind, maxCap);
+                        network.UpdateEdge(ind, sinkNode, 0);
                         break;
                     }
                     case Trimap.Background: {
-
-                        network.CreateEdge(ind, sinkNode, maxCap);
+                        network.UpdateEdge(srcNode, ind, 0);
+                        network.UpdateEdge(ind, sinkNode, maxCap);
                         break;
                     }
                     case Trimap.Unknown: {
@@ -353,15 +374,13 @@ export class GrabCut {
                         let pFore = GrabCut.GetTLinkWeight(gmmBG, currentPixel);
                         let pBack = GrabCut.GetTLinkWeight(gmmFG, currentPixel);
 
-                        network.CreateEdge(srcNode, ind, pFore);
-                        network.CreateEdge(ind, sinkNode, pBack);
+                        network.UpdateEdge(srcNode, ind, pFore);
+                        network.UpdateEdge(ind, sinkNode, pBack);
                         break;
                     }
                 }
             }
         }
-
-        return [network, srcNode, sinkNode];
     }
 
     private static GetTLinkWeight(gmm: GMM.GMM, pixel: Mat.Matrix): number {

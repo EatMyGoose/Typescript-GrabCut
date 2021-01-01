@@ -1,7 +1,9 @@
 export interface IFlowNetwork{
     CreateNode():number;
-    CreateEdge(soureNode:number, destNode:number, capacity:number):void;
+    CreateEdge(sourceNode:number, destNode:number, capacity:number):number;
     Clone():IFlowNetwork;
+    ResetFlow():void;
+    UpdateEdge(sourceNode:number, destNode:number, newCapacity:number):void;
 }
 
 export interface IMaxFlowResult{

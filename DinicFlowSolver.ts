@@ -32,18 +32,21 @@ export class DinicNetwork implements FlowBase.IFlowNetwork{
     nodeList: GraphNode[]; 
     edgeList: Edge[]; //Every second edge will be a reverse edge.
     
+    private edgeMap: DS.Dictionary<number>[] = [];
+    
     constructor(){
-        this.nodeList = [];
+        this.nodeList = []; 
         this.edgeList = [];
     }
 
     CreateNode():number{
         let count = this.nodeList.length;
         this.nodeList.push(new GraphNode(count));
+        this.edgeMap.push(new DS.Dictionary<number>());
         return count;
     }
 
-    CreateEdge(source:number, sink:number, capacity:number) : number{
+    CreateEdge(source:number, sink:number, capacity:number):number{
         let count = this.edgeList.length;
         let newEdge = new Edge(source, sink, capacity, count);
         let residualEdge = new Edge(sink, source, 0, count + 1);
@@ -54,12 +57,52 @@ export class DinicNetwork implements FlowBase.IFlowNetwork{
         this.nodeList[sink].edges.push(residualEdge);
         this.edgeList.push(newEdge);
         this.edgeList.push(residualEdge);
+
+        //Residual edge will not be stored in the edgeMap
+        this.edgeMap[source].Set(sink, count);
+
+        //Return the index of the forward(non-residual) edge
         return count;
     }
 
+    ResetFlow():void{
+        let edges = this.edgeList;
+        for(let i = 0; i < edges.length; i++){
+            edges[i].flow = 0;
+        }
+    }
+
+    UpdateEdge(srcNodeInd:number, destNodeInd:number, newCap:number){
+        let targetEdgeInd = this.edgeMap[srcNodeInd].Get(destNodeInd);
+        this.edgeList[targetEdgeInd].capacity = newCap;
+        //Reverse (residual) edge need not be updated (capacity stays 0)
+    }
+
     Clone():DinicNetwork{
+        
+        let clone = new DinicNetwork();
+
+        //Init nodes
+        for(let i = 0; i < this.nodeList.length; i++) clone.CreateNode();
+
+        //Clone edges
+        let originalEdges = this.edgeList;
+        for(let i = 0; i < originalEdges.length; i += 2){
+            let oEdge = originalEdges[i];
+            let oRes = originalEdges[i + 1];
+            let cEdgeInd = clone.CreateEdge(oEdge.source, oEdge.sink, oEdge.capacity);
+            let cEdge:Edge = clone.edgeList[cEdgeInd];
+            let cRes:Edge = clone.edgeList[cEdgeInd + 1];
+            //Copy flow values over
+            cEdge.flow = oEdge.flow;
+            cRes.flow = oRes.flow;
+        }
+
+        return clone;
+        /*
         let srcEdges = this.edgeList;
         let srcNodes = this.nodeList;
+        
         //Copy edge list
         let newEdges = srcEdges.map(s => {
             let copy = new Edge(s.source, s.sink, s.capacity, s.id);
@@ -81,6 +124,7 @@ export class DinicNetwork implements FlowBase.IFlowNetwork{
         n.edgeList = newEdges;
         n.nodeList = newNodes;
         return n;
+        */
     }
 }
 

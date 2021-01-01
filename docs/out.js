@@ -362,40 +362,47 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
         function BKNetwork() {
             this.nodes = [];
             this.edges = [];
+            this.edgeList = [];
         }
         BKNetwork.prototype.CreateNode = function () {
             var ind = this.nodes.length;
             this.nodes.push(new BKNode());
+            this.edgeList.push(new DS.Dictionary());
             return ind;
         };
         BKNetwork.prototype.CreateEdge = function (source, dest, capacity) {
             if (isNaN(capacity))
                 throw new Error("capacity cannot be NaN");
-            var edge = new BKEdge(source, dest, capacity, this.edges.length);
+            var edgeInd = this.edges.length;
+            var edge = new BKEdge(source, dest, capacity, edgeInd);
             this.edges.push(edge);
             this.nodes[source].edgesOut.push(edge);
             this.nodes[dest].edgesIn.push(edge);
+            this.edgeList[source].Set(dest, edge);
+            return edgeInd;
+        };
+        BKNetwork.prototype.UpdateEdge = function (srcIndex, destInd, newCap) {
+            var targetEdge = this.edgeList[srcIndex].Get(destInd);
+            targetEdge.cap = newCap;
+        };
+        BKNetwork.prototype.ResetFlow = function () {
+            var edges = this.edges;
+            for (var i = 0; i < edges.length; i++) {
+                edges[i].flow = 0;
+            }
         };
         BKNetwork.prototype.Clone = function () {
-            var edgeCopy = new Array(this.edges.length);
-            for (var i = 0; i < edgeCopy.length; i++) {
-                var original = this.edges[i];
-                var clonedEdge = new BKEdge(original.from, original.to, original.cap, i);
-                clonedEdge.flow = original.flow;
-                edgeCopy[i] = clonedEdge;
+            var clone = new BKNetwork();
+            for (var i = 0; i < this.nodes.length; i++)
+                clone.CreateNode();
+            var oE = this.edges;
+            for (var i = 0; i < oE.length; i++) {
+                var oEdge = oE[i];
+                var cEdgeInd = clone.CreateEdge(oEdge.from, oEdge.to, oEdge.cap);
+                var cEdge = clone.edges[cEdgeInd];
+                cEdge.flow = oEdge.flow;
             }
-            var nodeCopy = new Array(this.nodes.length);
-            for (var i = 0; i < nodeCopy.length; i++) {
-                var originalNode = this.nodes[i];
-                var clonedNode = new BKNode();
-                clonedNode.edgesOut = originalNode.edgesOut.map(function (e) { return edgeCopy[e.ind]; });
-                clonedNode.edgesIn = originalNode.edgesIn.map(function (e) { return edgeCopy[e.ind]; });
-                nodeCopy[i] = clonedNode;
-            }
-            var clonedNetwork = new BKNetwork();
-            clonedNetwork.nodes = nodeCopy;
-            clonedNetwork.edges = edgeCopy;
-            return clonedNetwork;
+            return clone;
         };
         return BKNetwork;
     }());
@@ -1021,12 +1028,14 @@ define("DinicFlowSolver", ["require", "exports", "Utility", "Collections"], func
     exports.GraphNode = GraphNode;
     var DinicNetwork = (function () {
         function DinicNetwork() {
+            this.edgeMap = [];
             this.nodeList = [];
             this.edgeList = [];
         }
         DinicNetwork.prototype.CreateNode = function () {
             var count = this.nodeList.length;
             this.nodeList.push(new GraphNode(count));
+            this.edgeMap.push(new DS.Dictionary());
             return count;
         };
         DinicNetwork.prototype.CreateEdge = function (source, sink, capacity) {
@@ -1039,32 +1048,34 @@ define("DinicFlowSolver", ["require", "exports", "Utility", "Collections"], func
             this.nodeList[sink].edges.push(residualEdge);
             this.edgeList.push(newEdge);
             this.edgeList.push(residualEdge);
+            this.edgeMap[source].Set(sink, count);
             return count;
         };
-        DinicNetwork.prototype.Clone = function () {
-            var srcEdges = this.edgeList;
-            var srcNodes = this.nodeList;
-            var newEdges = srcEdges.map(function (s) {
-                var copy = new Edge(s.source, s.sink, s.capacity, s.id);
-                copy.reverse = s.reverse;
-                copy.flow = s.flow;
-                return copy;
-            });
-            var edgeDict = Util.HashItems(newEdges, function (e) { return e.id; });
-            var newNodes = srcNodes.map(function (n) { return new GraphNode(n.id); });
-            var _loop_1 = function (i) {
-                srcNodes[i].edges.forEach(function (e) {
-                    var edgeID = e.id;
-                    newNodes[i].edges.push(edgeDict.Get(edgeID));
-                });
-            };
-            for (var i = 0; i < newNodes.length; i++) {
-                _loop_1(i);
+        DinicNetwork.prototype.ResetFlow = function () {
+            var edges = this.edgeList;
+            for (var i = 0; i < edges.length; i++) {
+                edges[i].flow = 0;
             }
-            var n = new DinicNetwork();
-            n.edgeList = newEdges;
-            n.nodeList = newNodes;
-            return n;
+        };
+        DinicNetwork.prototype.UpdateEdge = function (srcNodeInd, destNodeInd, newCap) {
+            var targetEdgeInd = this.edgeMap[srcNodeInd].Get(destNodeInd);
+            this.edgeList[targetEdgeInd].capacity = newCap;
+        };
+        DinicNetwork.prototype.Clone = function () {
+            var clone = new DinicNetwork();
+            for (var i = 0; i < this.nodeList.length; i++)
+                clone.CreateNode();
+            var originalEdges = this.edgeList;
+            for (var i = 0; i < originalEdges.length; i += 2) {
+                var oEdge = originalEdges[i];
+                var oRes = originalEdges[i + 1];
+                var cEdgeInd = clone.CreateEdge(oEdge.source, oEdge.sink, oEdge.capacity);
+                var cEdge = clone.edgeList[cEdgeInd];
+                var cRes = clone.edgeList[cEdgeInd + 1];
+                cEdge.flow = oEdge.flow;
+                cRes.flow = oRes.flow;
+            }
+            return clone;
         };
         return DinicNetwork;
     }());
@@ -1567,28 +1578,27 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             var _a;
             var flowNetwork = new BK.BKNetwork();
             var maxFlowSolver = BK.BKMaxflow;
-            var _b = GrabCut.GeneratePixel2PixelGraph(this.img, flowNetwork), networkBase = _b[0], maxCapacity = _b[1];
+            var _b = GrabCut.GeneratePixel2PixelGraph(this.img, flowNetwork), network = _b[0], maxCapacity = _b[1];
+            var _c = GrabCut.InitSourceAndSink(network, this.width, this.height), srcNode = _c[0], sinkNode = _c[1];
             var conv = new Conv.ConvergenceChecker(1, nIter);
             var energy;
             do {
                 console.log("iter:" + conv.getCurrentIter());
-                var _c = GrabCut.SegregatePixels(this.img, this.matte, 0, 0, this.height, this.width), fgPixels = _c[0], bgPixels = _c[1];
-                var _d = GrabCut.BinPixels(this.fgGMM, this.bgGMM, bgPixels, fgPixels), fgClusters = _d[0], bgClusters = _d[1];
+                var _d = GrabCut.SegregatePixels(this.img, this.matte, 0, 0, this.height, this.width), fgPixels = _d[0], bgPixels = _d[1];
+                var _e = GrabCut.BinPixels(this.fgGMM, this.bgGMM, bgPixels, fgPixels), fgClusters = _e[0], bgClusters = _e[1];
                 _a = [fgClusters, bgClusters].map(function (mixture) {
                     var nonEmptyClusters = mixture.filter(function (cluster) { return cluster.length > 0; });
                     return GMM.GMM.PreclusteredDataToGMM(nonEmptyClusters);
                 }), this.fgGMM = _a[0], this.bgGMM = _a[1];
                 console.log("fg clusters:" + this.fgGMM.clusters.length + ", bg clusters:" + this.bgGMM.clusters.length);
-                var networkCopy = networkBase.Clone();
-                var _e = GrabCut.AddSourceAndSink(networkCopy, maxCapacity, this.fgGMM, this.bgGMM, this.img, this.trimap), fullGraph = _e[0], source = _e[1], sink = _e[2];
+                GrabCut.UpdateSourceAndSink(network, maxCapacity, this.fgGMM, this.bgGMM, this.img, this.trimap, srcNode, sinkNode);
                 console.log('max flow');
-                var flowResult = maxFlowSolver(source, sink, fullGraph);
+                var flowResult = maxFlowSolver(srcNode, sinkNode, network);
                 console.log('cut');
                 var fgPixelIndices = flowResult.GetSourcePartition();
                 GrabCut.UpdateMatte(this.matte, this.trimap, fgPixelIndices);
                 energy = flowResult.GetMaxFlow();
                 console.log("Energy: " + energy);
-                networkCopy = null;
             } while (!conv.hasConverged(energy));
         };
         GrabCut.prototype.GetAlphaMask = function () {
@@ -1718,34 +1728,50 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             }
             return [network, maxCap];
         };
-        GrabCut.AddSourceAndSink = function (network, maxCap, gmmFG, gmmBG, image, trimap) {
+        GrabCut.InitSourceAndSink = function (network, width, height) {
+            var srcInd = network.CreateNode();
+            var sinkInd = network.CreateNode();
+            for (var r = 0; r < height; r++) {
+                for (var c = 0; c < width; c++) {
+                    var pixelNodeInd = GrabCut.GetArrayIndex(r, c, width);
+                    network.CreateEdge(srcInd, pixelNodeInd, 0);
+                }
+            }
+            for (var r = 0; r < height; r++) {
+                for (var c = 0; c < width; c++) {
+                    var pixelNodeInd = GrabCut.GetArrayIndex(r, c, width);
+                    network.CreateEdge(pixelNodeInd, sinkInd, 0);
+                }
+            }
+            return [srcInd, sinkInd];
+        };
+        GrabCut.UpdateSourceAndSink = function (network, maxCap, gmmFG, gmmBG, image, trimap, srcNode, sinkNode) {
             var _a = [image.length, image[0].length], nRows = _a[0], nCols = _a[1];
-            var srcNode = network.CreateNode();
-            var sinkNode = network.CreateNode();
             for (var r = 0; r < nRows; r++) {
                 for (var c = 0; c < nCols; c++) {
                     var ind = GrabCut.GetArrayIndex(r, c, nCols);
                     switch (trimap[ind]) {
                         case Trimap.Foreground: {
-                            network.CreateEdge(srcNode, ind, maxCap);
+                            network.UpdateEdge(srcNode, ind, maxCap);
+                            network.UpdateEdge(ind, sinkNode, 0);
                             break;
                         }
                         case Trimap.Background: {
-                            network.CreateEdge(ind, sinkNode, maxCap);
+                            network.UpdateEdge(srcNode, ind, 0);
+                            network.UpdateEdge(ind, sinkNode, maxCap);
                             break;
                         }
                         case Trimap.Unknown: {
                             var currentPixel = image[r][c];
                             var pFore = GrabCut.GetTLinkWeight(gmmBG, currentPixel);
                             var pBack = GrabCut.GetTLinkWeight(gmmFG, currentPixel);
-                            network.CreateEdge(srcNode, ind, pFore);
-                            network.CreateEdge(ind, sinkNode, pBack);
+                            network.UpdateEdge(srcNode, ind, pFore);
+                            network.UpdateEdge(ind, sinkNode, pBack);
                             break;
                         }
                     }
                 }
             }
-            return [network, srcNode, sinkNode];
         };
         GrabCut.GetTLinkWeight = function (gmm, pixel) {
             var gmmResult = gmm.Predict(pixel).TotalLikelihood();
@@ -2420,6 +2446,7 @@ define("WebPage/Editor", ["require", "exports", "WebPage/Camera"], function (req
             }
             hDC.beginPath();
             hDC.lineCap = "round";
+            hDC.lineJoin = "round";
             hDC.strokeStyle = this.colour;
             hDC.moveTo(this.segments[0].x, this.segments[0].y);
             hDC.lineWidth = this.widths[0];
@@ -2598,6 +2625,8 @@ define("WebPage/CanvasView", ["require", "exports", "WebPage/Camera"], function 
     exports.CanvasView = void 0;
     var CanvasView = (function () {
         function CanvasView(imgCanvas, editingCanvas) {
+            this.ZOOM_MAX = 2.0;
+            this.zoomFactor = 0;
             this.imgCanvas = imgCanvas;
             this.editingCanvas = editingCanvas;
             window.addEventListener("resize", this.Draw.bind(this));
@@ -2736,9 +2765,42 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Camera", "WebPage/M
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.Controller = void 0;
+    var LEFT_CLICK_FLAG = 1;
+    var RIGHT_CLICK_FLAG = 2;
+    var LEFT_CLICK_SINGLE = 0;
+    var RIGHT_CLICK_SINGLE = 2;
+    var MouseDebounce = (function () {
+        function MouseDebounce() {
+            this.MIN_DIST = 2;
+            this.MIN_MILLIS = 100;
+            this.lastTime = 0;
+            this.lastX = 0;
+            this.lastY = 0;
+        }
+        MouseDebounce.prototype.BeginMovement = function (x, y) {
+            this.lastTime = window.performance.now();
+            this.lastX = x;
+            this.lastY = y;
+        };
+        MouseDebounce.prototype.AllowUpdate = function (x, y) {
+            var currentMillis = window.performance.now();
+            var diff = currentMillis - this.lastTime;
+            var dist = Math.sqrt(Math.pow((this.lastX - x), 2) + Math.pow((this.lastY - y), 2));
+            if (diff > this.MIN_MILLIS ||
+                dist > this.MIN_DIST) {
+                this.BeginMovement(x, y);
+                return true;
+            }
+            else {
+                return false;
+            }
+        };
+        return MouseDebounce;
+    }());
     var Controller = (function () {
         function Controller(file, canvas, cropBtn, brushRadioBtns, radiusRange) {
             this.toolHandler = null;
+            this.debounce = new MouseDebounce();
             this.file = file;
             this.canvas = canvas;
             this.cropBtn = cropBtn;
@@ -2747,6 +2809,7 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Camera", "WebPage/M
             canvas.addEventListener("mousedown", this.begin.bind(this));
             canvas.addEventListener("mousemove", this.drag.bind(this));
             canvas.addEventListener("mouseup", this.end.bind(this));
+            canvas.addEventListener("contextmenu", function (e) { return e.preventDefault(); });
             document.addEventListener("keydown", this.Undo.bind(this));
             cropBtn.addEventListener("click", this.triggerGrabCut.bind(this));
         }
@@ -2794,6 +2857,10 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Camera", "WebPage/M
             return Cam.Transform2D(canvasPoint, canvasDim, bufferDim);
         };
         Controller.prototype.begin = function (e) {
+            var leftPressed = e.button == LEFT_CLICK_SINGLE;
+            if (!leftPressed)
+                return;
+            this.debounce.BeginMovement(e.clientX, e.clientY);
             var canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
             var start = this.Screen2Buffer(canvasPoint);
             var initActions = this.GetSelectedBrush();
@@ -2803,7 +2870,11 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Camera", "WebPage/M
             this.model.BeginDrawCall(drawCall);
         };
         Controller.prototype.drag = function (e) {
-            if (this.toolHandler == null)
+            var leftDown = e.buttons & LEFT_CLICK_FLAG;
+            if (this.toolHandler == null || !leftDown)
+                return;
+            var notBebouncing = this.debounce.AllowUpdate(e.clientX, e.clientY);
+            if (!notBebouncing)
                 return;
             var canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
             var point = this.Screen2Buffer(canvasPoint);
@@ -2811,7 +2882,8 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Camera", "WebPage/M
             this.model.UpdateDrawCall(drawCall, false);
         };
         Controller.prototype.end = function (e) {
-            if (this.toolHandler == null)
+            var leftReleased = e.button == LEFT_CLICK_SINGLE;
+            if (this.toolHandler == null || !leftReleased)
                 return;
             var canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
             var point = this.Screen2Buffer(canvasPoint);

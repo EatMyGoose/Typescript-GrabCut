@@ -3,8 +3,6 @@ import * as Mat from "./Matrix";
 import * as KM from "./KMeans";
 import * as Conv from "./ConvergenceChecker";
 
-//TODO: write selectable intializer for GMM
-
 export class GMMCluster{
     readonly dim: number;
     readonly pi: number; //weight;

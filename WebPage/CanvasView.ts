@@ -7,6 +7,9 @@ export class CanvasView {
     editingCanvas: HTMLCanvasElement;
     model: Model;
 
+    private ZOOM_MAX:number = 2.0;
+    private zoomFactor = 0;
+
     constructor(imgCanvas: HTMLCanvasElement, editingCanvas: HTMLCanvasElement) {
         this.imgCanvas = imgCanvas;
         this.editingCanvas = editingCanvas;

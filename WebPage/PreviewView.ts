@@ -51,7 +51,7 @@ export class PreviewView{
         this.img.style.width = `${width}px`;
         this.img.style.height = `${height}px`;
     }
-    
+
     private SwitchView(this:PreviewView, view:SelectedView):void{
         if(this.currentView != view){
             this.currentView = view;

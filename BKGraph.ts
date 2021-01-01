@@ -36,6 +36,7 @@ class BKNode {
 export class BKNetwork implements FlowBase.IFlowNetwork {
     nodes: BKNode[] = [];
     edges: BKEdge[] = [];
+    private edgeList: DS.Dictionary<BKEdge>[] = [];
 
     constructor() {
 
@@ -44,23 +45,60 @@ export class BKNetwork implements FlowBase.IFlowNetwork {
     CreateNode(): number {
         let ind = this.nodes.length;
         this.nodes.push(new BKNode());
+        this.edgeList.push(new DS.Dictionary<BKEdge>());
         return ind;
     }
 
-    CreateEdge(source: number, dest: number, capacity: number): void {
+    CreateEdge(source: number, dest: number, capacity: number): number{
         if(isNaN(capacity)) throw new Error("capacity cannot be NaN");
         
-        let edge = new BKEdge(source, dest, capacity, this.edges.length);
+        let edgeInd = this.edges.length;
+        let edge = new BKEdge(source, dest, capacity, edgeInd);
         this.edges.push(edge);
         this.nodes[source].edgesOut.push(edge);
         this.nodes[dest].edgesIn.push(edge);
+
+        //Update edgelist
+        this.edgeList[source].Set(dest, edge);  
+        return edgeInd; 
+    }
+
+    //Does update existing flow values. 
+    //Call Resetflow after updating edges to prevent over-saturated edges
+    UpdateEdge(srcIndex:number, destInd:number, newCap:number):void{
+        let targetEdge:BKEdge = this.edgeList[srcIndex].Get(destInd);
+        targetEdge.cap = newCap;
+    }
+
+    ResetFlow():void{
+        let edges = this.edges;
+        for(let i = 0; i < edges.length; i++){
+            edges[i].flow = 0;
+        }
     }
 
     Clone(): BKNetwork {
+        let clone = new BKNetwork();
+
+        //Init nodes
+        for(let i = 0; i < this.nodes.length; i++) clone.CreateNode();
+
+        //Clone edges
+        let oE = this.edges;
+        for(let i = 0; i < oE.length; i++){
+            let oEdge = oE[i];
+            let cEdgeInd = clone.CreateEdge(oEdge.from, oEdge.to, oEdge.cap);
+            //Copy flow values over
+            let cEdge = clone.edges[cEdgeInd];
+            cEdge.flow = oEdge.flow;
+        }
+
+        return clone;
+        /*
         let edgeCopy = new Array(this.edges.length);
         for (let i = 0; i < edgeCopy.length; i++) {
             let original = this.edges[i];
-            let clonedEdge = new BKEdge(original.from, original.to, original.cap, i);
+            let clonedEdge = new BKEdge(original.from, original.to, original.cap);
             clonedEdge.flow = original.flow;
             edgeCopy[i] = clonedEdge;
         }
@@ -78,6 +116,7 @@ export class BKNetwork implements FlowBase.IFlowNetwork {
         clonedNetwork.nodes = nodeCopy;
         clonedNetwork.edges = edgeCopy;
         return clonedNetwork;
+        */
     }
 }
 

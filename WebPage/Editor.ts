@@ -129,6 +129,7 @@ export class SegmentDrawCall implements IDrawCall{
         hDC.beginPath();
 
         hDC.lineCap = "round";
+        hDC.lineJoin = "round";
         hDC.strokeStyle = this.colour;
 
         hDC.moveTo(this.segments[0].x, this.segments[0].y);
