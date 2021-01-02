@@ -16,9 +16,9 @@ export enum Trimap {
     Unknown = 2
 }
 
-export interface Options{
-    tolerance:number, //in %
-    maxIterations:number 
+export interface Options {
+    tolerance: number, //in %
+    maxIterations: number
 }
 
 export class GrabCut {
@@ -50,7 +50,7 @@ export class GrabCut {
     }
 
     //Returns the alpha mask
-    BeginCrop(opt:Options) {
+    BeginCrop(opt: Options) {
         for (let i = 0; i < this.trimap.length; i++) {
             this.matte[i] = (this.trimap[i] == Trimap.Background) ? Trimap.Background : Trimap.Foreground;
         }
@@ -63,11 +63,10 @@ export class GrabCut {
         this.fgGMM.Fit(fgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
         this.bgGMM.Fit(bgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
 
-        let MAX_ITER = 10;
         this.RunIterations(opt.maxIterations, opt.tolerance);
     }
 
-    RunIterations(nIter: number, tolerancePercent:number) {
+    RunIterations(nIter: number, tolerancePercent: number) {
         //Create network graph (with edges between neighbouring pixels set)
         //Clone this network & populate with source and sink for use in the graphcut.
         let flowNetwork: FlowBase.IFlowNetwork = new BK.BKNetwork();//new Dinic.DinicNetwork();;
@@ -163,7 +162,7 @@ export class GrabCut {
         bgPixels: Mat.Matrix[], fgPixels: Mat.Matrix[]): [Mat.Matrix[][], Mat.Matrix[][]] {
 
         let maxIndex = function (arr: number[]): number {
-            let max = Number.MIN_VALUE;
+            let max = Number.MIN_SAFE_INTEGER;
             let maxInd = -1;
             for (let i = 0; i < arr.length; i++) {
                 let current = arr[i];
@@ -182,6 +181,10 @@ export class GrabCut {
             let pixel = bgPixels[i];
             let prob = bgGMM.Predict(pixel).likelihoods;
             let bin = maxIndex(prob);
+            if (bin < 0) {
+                console.log(prob);
+                throw new Error("pixel bin cannot be found");
+            }
             bg[bin].push(pixel);
         }
 
@@ -213,56 +216,59 @@ export class GrabCut {
         //let neighbours = [[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1],[1,0],[1,-1]];
         //neighbours within the 4 cardinal directions gives a better result than 8 surrounding pixels.
         let neighbours = [[0, -1], [-1, 0], [0, 1], [1, 0]];
-        let validNeighbour: boolean[] = new Array(neighbours.length);
-        let diffSquareList: number[] = new Array(neighbours.length);
         let coeff = neighbours.map(t => 50 / Math.sqrt(t[0] ** 2 + t[1] ** 2));
 
-        let maxCap = Number.MIN_VALUE;
+        let maxCap = Number.MIN_SAFE_INTEGER;
+
+        let GetNeighbour = (r: number, c: number, neighbourInd: number): [boolean, number, number] => {
+            let offset = neighbours[neighbourInd];
+            let nR = r + offset[0];
+            let nC = c + offset[1];
+            let validNeighbour = GrabCut.WithinBounds(nR, nC, width, height);
+            return [validNeighbour, nR, nC];
+        };
+
+        //--new--
+        //Find beta (the mean difference between a pixel and its neighbours)
+        let nCount = 0;
+        let diffAcc = 0;
+        for (let r = 0; r < height; r++) {
+            for (let c = 0; c < width; c++) {
+                let currentPixel = img[r][c];
+
+                for (let i = 0; i < neighbours.length; i++) {
+                    let [validNeighbour, nR, nC] = GetNeighbour(r, c, i);
+                    if (!validNeighbour) continue;
+
+                    let neighbouringPixel = img[nR][nC];
+                    let diffSquare = Mat.NormSquare(Mat.Sub(currentPixel, neighbouringPixel));
+                    diffAcc += diffSquare;
+                    nCount++;
+                }
+            }
+        }
+
+        let beta = 0.5 / (diffAcc / nCount);
 
         //Set pixel to pixel edge capacities
         for (let r = 0; r < height; r++) {
             for (let c = 0; c < width; c++) {
 
-                let currentPixel = img[r][c];
-                let diffSquareAcc = 0;
-                let nNeighbours = 0;
-
-                for (let i = 0; i < neighbours.length; i++) {
-                    let offset = neighbours[i];
-                    let nR = r + offset[0];
-                    let nC = c + offset[1];
-                    validNeighbour[i] = GrabCut.WithinBounds(nR, nC, width, height);
-                    if (!validNeighbour[i]) continue;
-
-                    let neighbouringPixel = img[nR][nC];
-                    let diffSquare = Mat.NormSquare(Mat.Sub(currentPixel, neighbouringPixel));
-                    diffSquareList[i] = diffSquare;
-                    diffSquareAcc += diffSquare;
-                    nNeighbours++;
-                }
-
-                let meanDifference = diffSquareAcc / nNeighbours;
-                let denominator = (meanDifference > 0) ? (2 * meanDifference) : 100000; //To avoid divide by zero errors
-                let beta = 1 / (2 * denominator);
-
                 let nodeIndex = GrabCut.GetArrayIndex(r, c, width);
 
                 for (let i = 0; i < neighbours.length; i++) {
-                    if (!validNeighbour[i]) continue;
+                    let [validNeighbour, nR, nC] = GetNeighbour(r, c, i);
+                    if (!validNeighbour) continue;
 
-                    let offset = neighbours[i];
-                    let nR = r + offset[0];
-                    let nC = c + offset[1];
                     let neighbourIndex = GrabCut.GetArrayIndex(nR, nC, width);
-                    let exponent = -beta * diffSquareList[i];
+                    let diffSquare = Mat.NormSquare(Mat.Sub(img[r][c], img[nR][nC]));
+                    let exponent = -beta * diffSquare;
                     let capacity = coeff[i] * Math.exp(exponent);
 
                     //Debugging purposes only
                     if (isNaN(capacity)) {
                         console.log({
                             coeff: coeff,
-                            diffSquareList: diffSquareList,
-                            validNeighbour: validNeighbour,
                             beta: beta,
                             exponent: exponent,
                             capacity: capacity
@@ -273,61 +279,18 @@ export class GrabCut {
 
                     maxCap = (capacity > maxCap) ? capacity : maxCap;
                 }
-                //#region "oldimplementation"
-                /*
-                let adjSet = 
-                    neighbours
-                    .map(t => [r + t[0], c + t[1]])
-                    .filter(t => GrabCut.WithinBounds(t[0], t[1], width, height));
-                
-                //Calculation of exponential coeff term
-                //Norm square of the difference between the current pixel and its neighbours
-                let diffSquare:number[] = 
-                    adjSet
-                    .map(t => Mat.Sub(img[r][c], img[t[0]][t[1]]))
-                    .map(d => Mat.NormSquare(d));
-                
-                let meanDifference = Util.Sum(diffSquare) / diffSquare.length;
-                
-                let denominator = (meanDifference > 0) ? (2 * meanDifference) : 100000; //To avoid divide by zero errors
-                let beta = 1 / (2 * denominator);
-
-                
-                for(let n = 0; n < adjSet.length; n++){
-                    let [nR, nC] = adjSet[n];
-                    let neighbourIndex = GrabCut.GetArrayIndex(nR, nC, width);
-                    let exponent = -beta * diffSquare[n];
-                    let capacity = coeff[n] * Math.exp(exponent);
-                    
-                    //Debugging purposes only
-                    if(isNaN(capacity)){
-                        console.log({
-                            coeff:coeff,
-                            diffSquare:diffSquare,
-                            diffSquareLen:diffSquare.length,
-                            beta:beta,
-                            exponent:exponent,
-                            capacity:capacity
-                        });
-                    }
-
-                    network.CreateEdge(nodeIndex, neighbourIndex, capacity);
-                    
-                    maxCap = (capacity > maxCap)? capacity : maxCap; 
-                }
-                */
-                //#endregion "oldimplementation"
             }
         }
 
         return [network, maxCap];
     }
 
+
     //Creates edges from the source nodes to the pixels &
     //edges from the pixel node to the sink node
-    
+
     //Returns the [sourceNodeIndex, sinkNodeIndex]
-    private static InitSourceAndSink(network: FlowBase.IFlowNetwork, width:number, height:number):[number,number]{
+    private static InitSourceAndSink(network: FlowBase.IFlowNetwork, width: number, height: number): [number, number] {
         let srcInd = network.CreateNode();
         let sinkInd = network.CreateNode();
 
@@ -356,8 +319,8 @@ export class GrabCut {
         network: FlowBase.IFlowNetwork, maxCap: number,
         gmmFG: GMM.GMM, gmmBG: GMM.GMM,
         image: Mat.Matrix[][],
-        trimap: Uint8Array, 
-        srcNode:number, sinkNode:number): void{
+        trimap: Uint8Array,
+        srcNode: number, sinkNode: number): void {
 
         let [nRows, nCols] = [image.length, image[0].length];
 

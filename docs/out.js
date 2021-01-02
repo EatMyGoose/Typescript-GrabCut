@@ -1370,11 +1370,17 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
         function GMMCluster(_pi, _mean, _covariance) {
             this.pi = _pi;
             this.mean = _mean;
+            var epsilon = 1e-8;
+            if (Math.abs(Mat.Determinant(_covariance)) < epsilon) {
+                var dim = Mat.Rows(_covariance);
+                var epsMat = Mat.Scale(epsilon, Mat.Identity(dim));
+                _covariance = Mat.Add(_covariance, epsMat);
+            }
             this.covariance = _covariance;
             this.covarianceDet = Mat.Determinant(_covariance);
             this.covarianceInv = Mat.Inverse(_covariance);
             this.dim = Math.max.apply(Math, Mat.Dimensions(_mean));
-            var coeffDenominator = Math.sqrt(Math.pow(2 * Math.PI, this.dim) * this.covarianceDet);
+            var coeffDenominator = Math.sqrt(Math.pow(2 * Math.PI, this.dim) * Math.abs(this.covarianceDet));
             this.coeff = this.pi * (1 / coeffDenominator);
         }
         GMMCluster.prototype.Likelihood = function (observation) {
@@ -1417,6 +1423,9 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
             return gmm;
         };
         GMM.Points2GMMCluster = function (data, dataPointsInGMMSet) {
+            if (data.length == 0) {
+                throw new Error("GMM cluster cannot be empty");
+            }
             var nData = data.length;
             var weight = nData / dataPointsInGMMSet;
             var params = Mat.MeanAndCovariance(data);
@@ -1431,6 +1440,12 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
             });
         };
         GMM.prototype.EM = function (data, initialClusters) {
+            var ReplaceZeroes = function (arr, lowerThreshold) {
+                for (var i = 0; i < arr.length; i++) {
+                    if (arr[i] < lowerThreshold)
+                        arr[i] = lowerThreshold;
+                }
+            };
             var nDataPoints = data.length;
             var nDims = Mat.Rows(data[0]);
             var nClusters = initialClusters.length;
@@ -1440,10 +1455,16 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
                 var currentCluster = initialClusters[c];
                 for (var d = 0; d < nDataPoints; d++) {
                     var p = currentCluster.Likelihood(data[d]);
+                    if (isNaN(p)) {
+                        console.log(currentCluster);
+                        throw new Error("NaN");
+                    }
                     prob[c][d] = p;
                     probSum[d] += p;
                 }
             }
+            var eps = 1e-9;
+            ReplaceZeroes(probSum, eps);
             var resp = Mat.CreateMatrix(nClusters, nDataPoints);
             var clusterResp = Util.Fill(nClusters, 0);
             for (var c = 0; c < nClusters; c++) {
@@ -1453,6 +1474,7 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
                     clusterResp[c] += r;
                 }
             }
+            ReplaceZeroes(clusterResp, eps);
             var clusterSum = Util
                 .FillObj(nClusters, function () { return Mat.CreateMatrix(nDims, 1); });
             for (var c = 0; c < nClusters; c++) {
@@ -1475,6 +1497,7 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
                 }
             }
             var covariances = covAcc.map(function (cov, ind) { return Mat.Scale(1 / clusterResp[ind], cov); });
+            console.log(clusterResp);
             return means.map(function (_, cIndex) {
                 return new GMMCluster(weights[cIndex], means[cIndex], covariances[cIndex]);
             });
@@ -1572,7 +1595,6 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             var MIN_PERCENT_CHANGE = 1;
             this.fgGMM.Fit(fgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
             this.bgGMM.Fit(bgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
-            var MAX_ITER = 10;
             this.RunIterations(opt.maxIterations, opt.tolerance);
         };
         GrabCut.prototype.RunIterations = function (nIter, tolerancePercent) {
@@ -1641,7 +1663,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
         };
         GrabCut.BinPixels = function (fgGMM, bgGMM, bgPixels, fgPixels) {
             var maxIndex = function (arr) {
-                var max = Number.MIN_VALUE;
+                var max = Number.MIN_SAFE_INTEGER;
                 var maxInd = -1;
                 for (var i = 0; i < arr.length; i++) {
                     var current = arr[i];
@@ -1658,6 +1680,10 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
                 var pixel = bgPixels[i];
                 var prob = bgGMM.Predict(pixel).likelihoods;
                 var bin = maxIndex(prob);
+                if (bin < 0) {
+                    console.log(prob);
+                    throw new Error("pixel bin cannot be found");
+                }
                 bg[bin].push(pixel);
             }
             for (var i = 0; i < fgPixels.length; i++) {
@@ -1678,46 +1704,46 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
                 }
             }
             var neighbours = [[0, -1], [-1, 0], [0, 1], [1, 0]];
-            var validNeighbour = new Array(neighbours.length);
-            var diffSquareList = new Array(neighbours.length);
             var coeff = neighbours.map(function (t) { return 50 / Math.sqrt(Math.pow(t[0], 2) + Math.pow(t[1], 2)); });
-            var maxCap = Number.MIN_VALUE;
+            var maxCap = Number.MIN_SAFE_INTEGER;
+            var GetNeighbour = function (r, c, neighbourInd) {
+                var offset = neighbours[neighbourInd];
+                var nR = r + offset[0];
+                var nC = c + offset[1];
+                var validNeighbour = GrabCut.WithinBounds(nR, nC, width, height);
+                return [validNeighbour, nR, nC];
+            };
+            var nCount = 0;
+            var diffAcc = 0;
             for (var r = 0; r < height; r++) {
                 for (var c = 0; c < width; c++) {
                     var currentPixel = img[r][c];
-                    var diffSquareAcc = 0;
-                    var nNeighbours = 0;
                     for (var i = 0; i < neighbours.length; i++) {
-                        var offset = neighbours[i];
-                        var nR = r + offset[0];
-                        var nC = c + offset[1];
-                        validNeighbour[i] = GrabCut.WithinBounds(nR, nC, width, height);
-                        if (!validNeighbour[i])
+                        var _a = GetNeighbour(r, c, i), validNeighbour = _a[0], nR = _a[1], nC = _a[2];
+                        if (!validNeighbour)
                             continue;
                         var neighbouringPixel = img[nR][nC];
                         var diffSquare = Mat.NormSquare(Mat.Sub(currentPixel, neighbouringPixel));
-                        diffSquareList[i] = diffSquare;
-                        diffSquareAcc += diffSquare;
-                        nNeighbours++;
+                        diffAcc += diffSquare;
+                        nCount++;
                     }
-                    var meanDifference = diffSquareAcc / nNeighbours;
-                    var denominator = (meanDifference > 0) ? (2 * meanDifference) : 100000;
-                    var beta = 1 / (2 * denominator);
+                }
+            }
+            var beta = 0.5 / (diffAcc / nCount);
+            for (var r = 0; r < height; r++) {
+                for (var c = 0; c < width; c++) {
                     var nodeIndex = GrabCut.GetArrayIndex(r, c, width);
                     for (var i = 0; i < neighbours.length; i++) {
-                        if (!validNeighbour[i])
+                        var _b = GetNeighbour(r, c, i), validNeighbour = _b[0], nR = _b[1], nC = _b[2];
+                        if (!validNeighbour)
                             continue;
-                        var offset = neighbours[i];
-                        var nR = r + offset[0];
-                        var nC = c + offset[1];
                         var neighbourIndex = GrabCut.GetArrayIndex(nR, nC, width);
-                        var exponent = -beta * diffSquareList[i];
+                        var diffSquare = Mat.NormSquare(Mat.Sub(img[r][c], img[nR][nC]));
+                        var exponent = -beta * diffSquare;
                         var capacity = coeff[i] * Math.exp(exponent);
                         if (isNaN(capacity)) {
                             console.log({
                                 coeff: coeff,
-                                diffSquareList: diffSquareList,
-                                validNeighbour: validNeighbour,
                                 beta: beta,
                                 exponent: exponent,
                                 capacity: capacity

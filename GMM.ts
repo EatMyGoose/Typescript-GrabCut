@@ -16,12 +16,23 @@ export class GMMCluster{
     constructor(_pi:number, _mean:Mat.Matrix, _covariance:Mat.Matrix){
         this.pi = _pi;
         this.mean = _mean;
+
+        const epsilon = 1e-8;
+
+        //Determinant may be zero if all sample points are identical (i.e. no covariance)
+        //Add a scaled identity matrix to allow an inverse to be calculated.
+        if(Math.abs(Mat.Determinant(_covariance)) < epsilon){
+            let dim = Mat.Rows(_covariance);
+            
+            let epsMat = Mat.Scale(epsilon, Mat.Identity(dim));
+            _covariance = Mat.Add(_covariance,epsMat);
+        }
         this.covariance = _covariance;    
         this.covarianceDet = Mat.Determinant(_covariance);
         this.covarianceInv = Mat.Inverse(_covariance);
         this.dim = Math.max(...Mat.Dimensions(_mean));
 
-        let coeffDenominator = Math.sqrt(Math.pow( 2 * Math.PI, this.dim) * this.covarianceDet); 
+        let coeffDenominator = Math.sqrt(Math.pow( 2 * Math.PI, this.dim) * Math.abs(this.covarianceDet)); 
         this.coeff = this.pi * (1 / coeffDenominator);
     }
 
@@ -76,6 +87,9 @@ export class GMM {
 
     //Helper function for calculating initial GMMs
     private static Points2GMMCluster(data: Mat.Matrix[], dataPointsInGMMSet:number):GMMCluster{
+        if(data.length == 0){
+            throw new Error("GMM cluster cannot be empty");
+        }
         let nData = data.length;
         let weight = nData / dataPointsInGMMSet;
         let params = Mat.MeanAndCovariance(data);
@@ -93,6 +107,13 @@ export class GMM {
 
     //data: column vectors of each observation
     private EM(data:Mat.Matrix[], initialClusters:GMMCluster[]) : GMMCluster[]{
+
+        let ReplaceZeroes = (arr:number[], lowerThreshold:number):void => {
+            for(let i = 0; i < arr.length; i++){
+                if(arr[i] < lowerThreshold) arr[i] = lowerThreshold;
+            }
+        };
+
         let nDataPoints = data.length;
         let nDims = Mat.Rows(data[0]);
         let nClusters = initialClusters.length;
@@ -108,10 +129,19 @@ export class GMM {
             let currentCluster = initialClusters[c];
             for(let d = 0; d < nDataPoints; d++){
                 let p = currentCluster.Likelihood(data[d]);
+                if(isNaN(p)){
+                    console.log(currentCluster);
+                    throw new Error("NaN");
+                }
                 prob[c][d] = p;
                 probSum[d] += p;
             }
         }
+
+        //Scan total probabilities for zero
+        //Replace zeroes with a small value to prevent div by zero errors
+        const eps = 1e-9;
+        ReplaceZeroes(probSum, eps);
 
         let resp = Mat.CreateMatrix(nClusters, nDataPoints);
         let clusterResp = Util.Fill<number>(nClusters, 0);
@@ -122,6 +152,8 @@ export class GMM {
                 clusterResp[c] += r;
             }
         }
+
+        ReplaceZeroes(clusterResp, eps);
 
         //Recluster
         //Means
@@ -160,6 +192,7 @@ export class GMM {
         let covariances =
             covAcc.map((cov, ind) => Mat.Scale(1 / clusterResp[ind], cov));
 
+        console.log(clusterResp);
         //Return new GMM cluster hyperparameters
         return means.map((_,cIndex) => {
             return new GMMCluster(weights[cIndex], means[cIndex], covariances[cIndex]); 
