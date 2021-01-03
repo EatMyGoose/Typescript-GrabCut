@@ -463,13 +463,7 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
             var walkS = connector.from;
             while (walkS != src) {
                 var edge = edgeToParent[walkS];
-                var newMin = Math.min(bottleneck, edge.cap - edge.flow);
-                if (isNaN(newMin)) {
-                    console.log(bottleneck);
-                    console.log(edge);
-                    throw new Error("Bottleneck NaN, edge:" + edge);
-                }
-                bottleneck = newMin;
+                bottleneck = Math.min(bottleneck, edge.cap - edge.flow);
                 walkS = edge.from;
             }
         }
@@ -477,13 +471,7 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
             var walkT = connector.to;
             while (walkT != sink) {
                 var edge = edgeToParent[walkT];
-                var newMin = Math.min(bottleneck, edge.cap - edge.flow);
-                if (isNaN(newMin)) {
-                    console.log(bottleneck);
-                    console.log(edge);
-                    throw new Error("Bottleneck NaN, edge:" + edge);
-                }
-                bottleneck = newMin;
+                bottleneck = Math.min(bottleneck, edge.cap - edge.flow);
                 walkT = edge.to;
             }
         }
@@ -647,7 +635,7 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
 define("Matrix", ["require", "exports"], function (require, exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.IsVector = exports.IsRowVector = exports.IsColumnVector = exports.MaxElement = exports.Inverse = exports.Cofactors = exports.SubMatrix = exports.Determinant = exports.MeanAndCovariance = exports.AddScalar = exports.Sub = exports.AddInPlace = exports.Add = exports.Scale = exports.Transpose = exports.Mul = exports.FromArray = exports.IsSquare = exports.Dimensions = exports.NormSquare = exports.Identity = exports.Norm = exports.CreateMatrix = exports.Columns = exports.Rows = exports.RandomFill = exports.Clone = exports.Print = void 0;
+    exports.IsVector = exports.IsRowVector = exports.IsColumnVector = exports.MaxElement = exports.Inverse = exports.Cofactors = exports.SubMatrix = exports.Determinant = exports.MeanAndCovariance = exports.AddScalar = exports.Sub = exports.AddInPlace = exports.Add = exports.Scale = exports.Transpose = exports.Mul = exports.FromArray = exports.IsSquare = exports.Dimensions = exports.NormSquare = exports.Identity = exports.Norm = exports.CreateMatrix = exports.Columns = exports.Rows = exports.RandomFill = exports.OfDimensions = exports.Clone = exports.Print = void 0;
     function Print(m) {
         var lines = m.map(function (r) { return "[" + r.join(',') + "]"; });
         return "[" + lines.join('\n') + "]";
@@ -662,6 +650,10 @@ define("Matrix", ["require", "exports"], function (require, exports) {
         return FromArray(rows);
     }
     exports.Clone = Clone;
+    function OfDimensions(m, nRows, nCols) {
+        return m.length == nRows && m[0].length == nCols;
+    }
+    exports.OfDimensions = OfDimensions;
     function RandomFill(lowerBound, upperBound) {
         var _a = Dimensions(lowerBound), nRows = _a[0], nCols = _a[1];
         var random = CreateMatrix(nRows, nCols);
@@ -1940,127 +1932,6 @@ define("Tests", ["require", "exports", "DinicFlowSolver", "BKGraph", "MaxFlowTes
     }
     BkBenchmark();
 });
-define("WebPage/Camera", ["require", "exports"], function (require, exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.GetScale = exports.Transform2D = exports.TransformRect = exports.FitToRectangle = exports.Canvas2Buffer = exports.Buffer2Canvas = exports.BufferRect2CanvasRect = exports.CanvasRect2BufferRect = exports.Points2Rect = exports.RelPos = exports.ClipRect = exports.RectB2Rect = exports.Rect2RectB = exports.origin = void 0;
-    exports.origin = { x: 0, y: 0 };
-    function Rect2RectB(rect) {
-        return {
-            left: rect.x,
-            right: rect.x + rect.width,
-            top: rect.y,
-            bot: rect.y + rect.height
-        };
-    }
-    exports.Rect2RectB = Rect2RectB;
-    function RectB2Rect(rectB) {
-        return {
-            x: rectB.left,
-            y: rectB.top,
-            width: rectB.right - rectB.left,
-            height: rectB.bot - rectB.top
-        };
-    }
-    exports.RectB2Rect = RectB2Rect;
-    function ClipRect(rect, boundary) {
-        var rectB = Rect2RectB(rect);
-        var boundaryB = Rect2RectB(boundary);
-        var clippedB = {
-            left: Math.max(rectB.left, boundaryB.left),
-            right: Math.min(rectB.right, boundaryB.right),
-            top: Math.max(rectB.top, boundaryB.top),
-            bot: Math.min(rectB.bot, boundaryB.bot)
-        };
-        return RectB2Rect(clippedB);
-    }
-    exports.ClipRect = ClipRect;
-    function RelPos(clientX, clientY, target) {
-        var boundingBox = target.getBoundingClientRect();
-        var relPoint = {
-            x: clientX - boundingBox.x,
-            y: clientY - boundingBox.y
-        };
-        return relPoint;
-    }
-    exports.RelPos = RelPos;
-    function Points2Rect(p1, p2) {
-        var _a = [Math.min(p1.y, p2.y), Math.min(p1.x, p2.x)], top = _a[0], left = _a[1];
-        var _b = [Math.max(p1.y, p2.y), Math.max(p1.x, p2.x)], bot = _b[0], right = _b[1];
-        var _c = [(bot - top), (right - left)], height = _c[0], width = _c[1];
-        return {
-            x: left,
-            y: top,
-            width: width,
-            height: height
-        };
-    }
-    exports.Points2Rect = Points2Rect;
-    function CanvasRect2BufferRect(canvasRect, drawRegion, bufferWidth, bufferHeight) {
-        var cRectB = Rect2RectB(canvasRect);
-        var bufferTop = Canvas2Buffer(cRectB.left, cRectB.top, drawRegion, bufferWidth, bufferHeight);
-        var bufferBot = Canvas2Buffer(cRectB.right, cRectB.bot, drawRegion, bufferWidth, bufferHeight);
-        return Points2Rect(bufferTop, bufferBot);
-    }
-    exports.CanvasRect2BufferRect = CanvasRect2BufferRect;
-    function BufferRect2CanvasRect(bufferRect, bufferWidth, bufferHeight, clientRegion) {
-        var bufferRectB = Rect2RectB(bufferRect);
-        var canvasTop = Buffer2Canvas(bufferRectB.left, bufferRectB.top, bufferWidth, bufferHeight, clientRegion);
-        var canvasBot = Buffer2Canvas(bufferRectB.right, bufferRectB.bot, bufferWidth, bufferHeight, clientRegion);
-        return Points2Rect(canvasTop, canvasBot);
-    }
-    exports.BufferRect2CanvasRect = BufferRect2CanvasRect;
-    function Buffer2Canvas(bufferX, bufferY, bufferWidth, bufferHeight, clientRegion) {
-        var bufferDim = { x: 0, y: 0, width: bufferWidth, height: bufferHeight };
-        var bufferPoint = { x: bufferX, y: bufferY };
-        return Transform2D(bufferPoint, bufferDim, clientRegion);
-    }
-    exports.Buffer2Canvas = Buffer2Canvas;
-    function Canvas2Buffer(clientX, clientY, clientRegion, bufferWidth, bufferHeight) {
-        var bufferDim = { x: 0, y: 0, width: bufferWidth, height: bufferHeight };
-        var clientPoint = { x: clientX, y: clientY };
-        return Transform2D(clientPoint, clientRegion, bufferDim);
-    }
-    exports.Canvas2Buffer = Canvas2Buffer;
-    function FitToRectangle(maxWidth, maxHeight, imgWidth, imgHeight) {
-        var _a = [maxWidth / imgWidth, maxHeight / imgHeight], xScale = _a[0], yScale = _a[1];
-        var minScale = Math.min(xScale, yScale);
-        var scale = ((minScale) < 1) ? minScale : 1.0;
-        var w = imgWidth * scale;
-        var h = imgHeight * scale;
-        var x = (maxWidth - w) / 2;
-        var y = (maxHeight - h) / 2;
-        return { x: x, y: y, width: w, height: h };
-    }
-    exports.FitToRectangle = FitToRectangle;
-    function TransformRect(rect, sourceDim, destDim) {
-        var rectB = Rect2RectB(rect);
-        var p1 = { x: rectB.left, y: rectB.top };
-        var p2 = { x: rectB.right, y: rectB.bot };
-        var destP1 = Transform2D(p1, sourceDim, destDim);
-        var destP2 = Transform2D(p2, sourceDim, destDim);
-        return Points2Rect(destP1, destP2);
-    }
-    exports.TransformRect = TransformRect;
-    function Transform2D(point, sourceDim, destDim) {
-        var xFrac = (point.x - sourceDim.x) / sourceDim.width;
-        var yFrac = (point.y - sourceDim.y) / sourceDim.height;
-        var destX = (xFrac * destDim.width) + destDim.x;
-        var destY = (yFrac * destDim.height) + destDim.y;
-        return { x: destX, y: destY };
-    }
-    exports.Transform2D = Transform2D;
-    function GetScale(sourceDim, destDim) {
-        var eps = 10e-2;
-        var yScale = destDim.height / sourceDim.height;
-        var xScale = destDim.width / sourceDim.width;
-        if (Math.abs(yScale - xScale) > eps) {
-            console.error("Dimensions are not equally scaled across the x & y axes");
-        }
-        return yScale;
-    }
-    exports.GetScale = GetScale;
-});
 define("WebPage/FileInput", ["require", "exports"], function (require, exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -2335,6 +2206,74 @@ define("WebPage/ImageUtil", ["require", "exports", "Matrix", "Utility"], functio
     }
     exports.ImgData2URL = ImgData2URL;
 });
+define("WebPage/Drawing2D", ["require", "exports"], function (require, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.FitToRectangle = exports.Points2Rect = exports.RelPos = exports.ClipRect = exports.RectB2Rect = exports.Rect2RectB = exports.origin = void 0;
+    exports.origin = { x: 0, y: 0 };
+    function Rect2RectB(rect) {
+        return {
+            left: rect.x,
+            right: rect.x + rect.width,
+            top: rect.y,
+            bot: rect.y + rect.height
+        };
+    }
+    exports.Rect2RectB = Rect2RectB;
+    function RectB2Rect(rectB) {
+        return {
+            x: rectB.left,
+            y: rectB.top,
+            width: rectB.right - rectB.left,
+            height: rectB.bot - rectB.top
+        };
+    }
+    exports.RectB2Rect = RectB2Rect;
+    function ClipRect(rect, boundary) {
+        var rectB = Rect2RectB(rect);
+        var boundaryB = Rect2RectB(boundary);
+        var clippedB = {
+            left: Math.max(rectB.left, boundaryB.left),
+            right: Math.min(rectB.right, boundaryB.right),
+            top: Math.max(rectB.top, boundaryB.top),
+            bot: Math.min(rectB.bot, boundaryB.bot)
+        };
+        return RectB2Rect(clippedB);
+    }
+    exports.ClipRect = ClipRect;
+    function RelPos(clientX, clientY, target) {
+        var boundingBox = target.getBoundingClientRect();
+        var relPoint = {
+            x: clientX - boundingBox.x,
+            y: clientY - boundingBox.y
+        };
+        return relPoint;
+    }
+    exports.RelPos = RelPos;
+    function Points2Rect(p1, p2) {
+        var _a = [Math.min(p1.y, p2.y), Math.min(p1.x, p2.x)], top = _a[0], left = _a[1];
+        var _b = [Math.max(p1.y, p2.y), Math.max(p1.x, p2.x)], bot = _b[0], right = _b[1];
+        var _c = [(bot - top), (right - left)], height = _c[0], width = _c[1];
+        return {
+            x: left,
+            y: top,
+            width: width,
+            height: height
+        };
+    }
+    exports.Points2Rect = Points2Rect;
+    function FitToRectangle(maxWidth, maxHeight, imgWidth, imgHeight) {
+        var _a = [maxWidth / imgWidth, maxHeight / imgHeight], xScale = _a[0], yScale = _a[1];
+        var minScale = Math.min(xScale, yScale);
+        var scale = ((minScale) < 1) ? minScale : 1.0;
+        var w = imgWidth * scale;
+        var h = imgHeight * scale;
+        var x = (maxWidth - w) / 2;
+        var y = (maxHeight - h) / 2;
+        return { x: x, y: y, width: w, height: h };
+    }
+    exports.FitToRectangle = FitToRectangle;
+});
 define("WebPage/PreviewView", ["require", "exports", "WebPage/ImageUtil"], function (require, exports, IMUtil) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -2370,8 +2309,7 @@ define("WebPage/PreviewView", ["require", "exports", "WebPage/ImageUtil"], funct
             else {
                 this.download.removeAttribute("href");
             }
-            var drawRect = this.editorView.GetDrawRegion();
-            var _a = [drawRect.width, drawRect.height], width = _a[0], height = _a[1];
+            var _a = this.editorView.GetPreviewDim(), width = _a[0], height = _a[1];
             this.img.style.width = width + "px";
             this.img.style.height = height + "px";
         };
@@ -2385,7 +2323,90 @@ define("WebPage/PreviewView", ["require", "exports", "WebPage/ImageUtil"], funct
     }());
     exports.PreviewView = PreviewView;
 });
-define("WebPage/Editor", ["require", "exports", "WebPage/Camera"], function (require, exports, Cam) {
+define("WebPage/Transform", ["require", "exports", "Matrix", "WebPage/Drawing2D"], function (require, exports, M, Cam) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.Apply2DTransform = exports.ChainTransform = exports.AffinePoint2Point = exports.Point2AffinePoint = exports.Translate2D = exports.Scale2D = exports.GetScalingFactor = exports.TransformRect = void 0;
+    function Is3x3(mat) {
+        return M.OfDimensions(mat, 3, 3);
+    }
+    function Is2DAffineColVector(mat) {
+        return M.OfDimensions(mat, 3, 1);
+    }
+    function TransformRect(transform, rect) {
+        var topLeft = { x: rect.x, y: rect.y };
+        var botRight = { x: rect.x + rect.width, y: rect.y + rect.height };
+        var transTopLeft = Apply2DTransform(topLeft, transform);
+        var transBotRight = Apply2DTransform(botRight, transform);
+        return Cam.Points2Rect(transTopLeft, transBotRight);
+    }
+    exports.TransformRect = TransformRect;
+    function GetScalingFactor(affineMat) {
+        return [affineMat[0][0], affineMat[1][1]];
+    }
+    exports.GetScalingFactor = GetScalingFactor;
+    function Scale2D(xScale, yScale) {
+        var trans = M.Identity(3);
+        trans[0][0] = xScale;
+        trans[1][1] = yScale;
+        return trans;
+    }
+    exports.Scale2D = Scale2D;
+    function Translate2D(xTranslation, yTranslation) {
+        var trans = M.Identity(3);
+        trans[0][2] = xTranslation;
+        trans[1][2] = yTranslation;
+        return trans;
+    }
+    exports.Translate2D = Translate2D;
+    function Point2AffinePoint(point) {
+        var m = M.CreateMatrix(3, 1);
+        m[0][0] = point.x;
+        m[1][0] = point.y;
+        m[2][0] = 1;
+        return m;
+    }
+    exports.Point2AffinePoint = Point2AffinePoint;
+    function AffinePoint2Point(col) {
+        if (!Is2DAffineColVector(col))
+            throw new Error("Input needs to be a 3x1 column vector, actual:" + col);
+        return {
+            x: col[0][0],
+            y: col[1][0]
+        };
+    }
+    exports.AffinePoint2Point = AffinePoint2Point;
+    function ChainTransform() {
+        var transformations = [];
+        for (var _i = 0; _i < arguments.length; _i++) {
+            transformations[_i] = arguments[_i];
+        }
+        var not2DAffineTransform = transformations
+            .filter(function (t) { return !Is3x3(t); })
+            .length > 0;
+        if (not2DAffineTransform)
+            throw new Error("Transformations must be 3x3 2d affine transform matrices");
+        var trans = M.Identity(3);
+        for (var i = 0; i < transformations.length; i++) {
+            trans = M.Mul(trans, transformations[i]);
+        }
+        return [trans, M.Inverse(trans)];
+    }
+    exports.ChainTransform = ChainTransform;
+    function Apply2DTransform(point) {
+        var transformations = [];
+        for (var _i = 1; _i < arguments.length; _i++) {
+            transformations[_i - 1] = arguments[_i];
+        }
+        if (transformations.length == 0)
+            return point;
+        var _a = ChainTransform.apply(void 0, transformations), trans = _a[0], _ = _a[1];
+        var prod = M.Mul(trans, Point2AffinePoint(point));
+        return AffinePoint2Point(prod);
+    }
+    exports.Apply2DTransform = Apply2DTransform;
+});
+define("WebPage/DrawCall", ["require", "exports", "WebPage/Drawing2D", "WebPage/Transform"], function (require, exports, Cam, T) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.SegmentDrawCall = exports.InvertedRectDrawCall = exports.HollowRectDrawCall = void 0;
@@ -2408,11 +2429,11 @@ define("WebPage/Editor", ["require", "exports", "WebPage/Camera"], function (req
             hDC.rect(r.x, r.y, r.width, r.height);
             hDC.stroke();
         };
-        HollowRectDrawCall.prototype.Transform = function (srcDim, destDim) {
-            var scale = Cam.GetScale(srcDim, destDim);
+        HollowRectDrawCall.prototype.Transform = function (transform) {
+            var scale = T.GetScalingFactor(transform)[0];
             var scaledWidth = this.width * scale;
             var transformed = new HollowRectDrawCall(this.colour, scaledWidth);
-            transformed.rect = Cam.TransformRect(this.rect, srcDim, destDim);
+            transformed.rect = T.TransformRect(transform, this.rect);
             return transformed;
         };
         return HollowRectDrawCall;
@@ -2444,9 +2465,9 @@ define("WebPage/Editor", ["require", "exports", "WebPage/Camera"], function (req
             drawRect(botRect);
             hDC.stroke();
         };
-        InvertedRectDrawCall.prototype.Transform = function (srcDim, destDim) {
+        InvertedRectDrawCall.prototype.Transform = function (transform) {
             var transformed = new InvertedRectDrawCall(this.colour);
-            transformed.rect = Cam.TransformRect(this.rect, srcDim, destDim);
+            transformed.rect = T.TransformRect(transform, this.rect);
             return transformed;
         };
         return InvertedRectDrawCall;
@@ -2486,18 +2507,18 @@ define("WebPage/Editor", ["require", "exports", "WebPage/Camera"], function (req
             hDC.stroke();
             hDC.globalCompositeOperation = originalCompositingMode;
         };
-        SegmentDrawCall.prototype.Transform = function (srcDim, destDim) {
+        SegmentDrawCall.prototype.Transform = function (transform) {
             var transformed = new SegmentDrawCall(null, null, this.colour, this.erase);
-            var scale = Cam.GetScale(srcDim, destDim);
+            var scale = T.GetScalingFactor(transform)[0];
             transformed.widths = this.widths.map(function (w) { return w * scale; });
-            transformed.segments = this.segments.map(function (seg) { return Cam.Transform2D(seg, srcDim, destDim); });
+            transformed.segments = this.segments.map(function (seg) { return T.Apply2DTransform(seg, transform); });
             return transformed;
         };
         return SegmentDrawCall;
     }());
     exports.SegmentDrawCall = SegmentDrawCall;
 });
-define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "Utility"], function (require, exports, Cut, ImgUtil, Util) {
+define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "Utility", "Matrix"], function (require, exports, Cut, ImgUtil, Util, Mat) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.Model = exports.BGColour = exports.FGColour = void 0;
@@ -2536,12 +2557,10 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
             }
             this.TriggerCanvasRedraw();
         };
-        Model.prototype.GetDrawOps = function (coordinateSpace) {
+        Model.prototype.GetDrawOps = function (imgToDestTransform) {
             var last = (this.pendingDrawOps == null) ? [] : [this.pendingDrawOps];
             var merged = this.canvasDrawOps.concat(last);
-            var _a = this.GetImageDim(), width = _a[0], height = _a[1];
-            var bufferDim = { x: 0, y: 0, width: width, height: height };
-            return merged.map(function (drawOp) { return drawOp.Transform(bufferDim, coordinateSpace); });
+            return merged.map(function (drawOp) { return drawOp.Transform(imgToDestTransform); });
         };
         Model.prototype.TriggerCanvasRedraw = function () {
             this.canvasView.Draw();
@@ -2602,7 +2621,8 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
             var _a = this.GetImageDim(), width = _a[0], height = _a[1];
             var tempCanvas = new ImgUtil.Temp2DCanvas(width, height);
             var hDC = tempCanvas.GetHDC();
-            var ops = this.GetDrawOps(this.GetCoordSystem());
+            var Identity = Mat.Identity(3);
+            var ops = this.GetDrawOps(Identity);
             ops.forEach(function (op) { return op.Draw(hDC); });
             var imgData = tempCanvas.GetImageData();
             var trimap = Util.Fill2DObj(height, width, function () { return Cut.Trimap.Unknown; });
@@ -2647,14 +2667,17 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
     }());
     exports.Model = Model;
 });
-define("WebPage/CanvasView", ["require", "exports", "WebPage/Camera"], function (require, exports, Cam) {
+define("WebPage/CanvasView", ["require", "exports", "WebPage/Transform"], function (require, exports, T) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.CanvasView = void 0;
     var CanvasView = (function () {
         function CanvasView(imgCanvas, editingCanvas) {
             this.ZOOM_MAX = 2.0;
-            this.zoomFactor = 0;
+            this.ZOOM_MIN = 0;
+            this.zoomFactor = 1.0;
+            this.offsetX = 0;
+            this.offsetY = 0;
             this.imgCanvas = imgCanvas;
             this.editingCanvas = editingCanvas;
             window.addEventListener("resize", this.Draw.bind(this));
@@ -2662,30 +2685,50 @@ define("WebPage/CanvasView", ["require", "exports", "WebPage/Camera"], function 
         CanvasView.prototype.AttachModel = function (model) {
             this.model = model;
         };
-        CanvasView.prototype.GetDrawRegion = function () {
-            return this.drawRegion;
+        CanvasView.prototype.GetMinScale = function () {
+            var _a = [this.imgCanvas.width, this.imgCanvas.height], width = _a[0], height = _a[1];
+            var _b = this.model.GetImageDim(), imgWidth = _b[0], imgHeight = _b[1];
+            var minScale = Math.min((width / imgWidth), (height / imgHeight));
+            minScale = Math.min(minScale, 1);
+            return minScale;
+        };
+        CanvasView.prototype.GetPreviewDim = function () {
+            var _a = this.model.GetImageDim(), imgWidth = _a[0], imgHeight = _a[1];
+            var scale = this.GetMinScale();
+            return [imgWidth * scale, imgHeight * scale];
+        };
+        CanvasView.prototype.ImgToCanvasTransform = function () {
+            var _a = [this.imgCanvas.width, this.imgCanvas.height], cWidth = _a[0], cHeight = _a[1];
+            var _b = this.model.GetImageDim(), imgWidth = _b[0], imgHeight = _b[1];
+            var xOffset = cWidth * 0.5 - ((imgWidth + this.offsetX) * 0.5 * this.zoomFactor);
+            var yOffset = cHeight * 0.5 - ((imgHeight + this.offsetY) * 0.5 * this.zoomFactor);
+            var translation = T.Translate2D(xOffset, yOffset);
+            var zoom = T.Scale2D(this.zoomFactor, this.zoomFactor);
+            var _c = T.ChainTransform(translation, zoom), transform = _c[0], _ = _c[1];
+            return transform;
         };
         CanvasView.prototype.Draw = function () {
-            console.log("redraw");
             CanvasView.ResizeBufferToClientSize(this.editingCanvas);
             CanvasView.ResizeBufferToClientSize(this.imgCanvas);
             var _a = [this.imgCanvas.width, this.imgCanvas.height], width = _a[0], height = _a[1];
             var imgHDC = this.imgCanvas.getContext("2d");
             var editHDC = this.editingCanvas.getContext("2d");
-            var img = this.model.GetOriginalImage();
             imgHDC.clearRect(0, 0, width, height);
             editHDC.clearRect(0, 0, width, height);
+            var img = this.model.GetOriginalImage();
             if (img == null)
                 return;
             var _b = this.model.GetImageDim(), imgWidth = _b[0], imgHeight = _b[1];
-            var coord = Cam.FitToRectangle(width, height, imgWidth, imgHeight);
-            this.drawRegion = coord;
-            imgHDC.drawImage(img, coord.x, coord.y, coord.width, coord.height);
+            this.zoomFactor = this.GetMinScale();
+            var imgRect = { x: 0, y: 0, width: imgWidth, height: imgHeight };
+            var imgToCanvas = this.ImgToCanvasTransform();
+            var canvasImgRect = T.TransformRect(imgToCanvas, imgRect);
+            imgHDC.drawImage(img, canvasImgRect.x, canvasImgRect.y, canvasImgRect.width, canvasImgRect.height);
             editHDC.save();
             var clipRegion = new Path2D();
-            clipRegion.rect(coord.x, coord.y, coord.width, coord.height);
+            clipRegion.rect(canvasImgRect.x, canvasImgRect.y, canvasImgRect.width, canvasImgRect.height);
             editHDC.clip(clipRegion);
-            var drawOps = this.model.GetDrawOps(this.GetDrawRegion());
+            var drawOps = this.model.GetDrawOps(imgToCanvas);
             drawOps.forEach(function (d) {
                 d.Draw(editHDC);
             });
@@ -2703,7 +2746,7 @@ define("WebPage/CanvasView", ["require", "exports", "WebPage/Camera"], function 
     }());
     exports.CanvasView = CanvasView;
 });
-define("WebPage/ToolHandler", ["require", "exports", "WebPage/Editor", "WebPage/Camera"], function (require, exports, Ed, Cam) {
+define("WebPage/ToolHandler", ["require", "exports", "WebPage/DrawCall", "WebPage/Drawing2D"], function (require, exports, Ed, Cam) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.SegmentToolHandler = exports.InvertedRectToolHandler = exports.HollowRectToolHandler = void 0;
@@ -2789,7 +2832,7 @@ define("WebPage/ToolHandler", ["require", "exports", "WebPage/Editor", "WebPage/
     }());
     exports.SegmentToolHandler = SegmentToolHandler;
 });
-define("WebPage/Controller", ["require", "exports", "WebPage/Camera", "WebPage/Model", "WebPage/ToolHandler"], function (require, exports, Cam, Model_1, Tools) {
+define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPage/Model", "WebPage/ToolHandler", "Matrix", "WebPage/Transform"], function (require, exports, Cam, Model_1, Tools, Mat, T) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.Controller = void 0;
@@ -2886,8 +2929,9 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Camera", "WebPage/M
         Controller.prototype.Screen2Buffer = function (canvasPoint) {
             var _a = this.model.GetImageDim(), bufferWidth = _a[0], bufferHeight = _a[1];
             var bufferDim = { x: 0, y: 0, width: bufferWidth, height: bufferHeight };
-            var canvasDim = this.canvasView.GetDrawRegion();
-            return Cam.Transform2D(canvasPoint, canvasDim, bufferDim);
+            var img2Canvas = this.canvasView.ImgToCanvasTransform();
+            var canvas2Img = Mat.Inverse(img2Canvas);
+            return T.Apply2DTransform(canvasPoint, canvas2Img);
         };
         Controller.prototype.begin = function (e) {
             var leftPressed = e.button == LEFT_CLICK_SINGLE;

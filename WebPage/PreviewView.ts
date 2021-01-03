@@ -46,8 +46,7 @@ export class PreviewView{
             this.download.removeAttribute("href");
         }
         
-        let drawRect = this.editorView.GetDrawRegion();
-        let [width, height] = [drawRect.width, drawRect.height];
+        let [width, height] = this.editorView.GetPreviewDim();
         this.img.style.width = `${width}px`;
         this.img.style.height = `${height}px`;
     }

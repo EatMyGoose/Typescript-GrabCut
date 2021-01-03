@@ -1,5 +1,5 @@
-import * as Ed from "./Editor";
-import * as Cam from "./Camera";
+import * as Ed from "./DrawCall";
+import * as Cam from "./Drawing2D";
 
 export interface IToolHandler{
     MouseDown(canvasPoint:Cam.Point):Ed.IDrawCall;

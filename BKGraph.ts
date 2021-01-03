@@ -169,13 +169,17 @@ function BKBottleneck(src: number, sink: number, connector: BKEdge, edgeToParent
         while (walkS != src) {
             //if (parents[walkS] == NULL_PARENT) throw Error("Null parent in augmenting path");
             let edge = edgeToParent[walkS];
+            bottleneck  = Math.min(bottleneck, edge.cap - edge.flow);
+            /*
             let newMin = Math.min(bottleneck, edge.cap - edge.flow);
+            
             if(isNaN(newMin)){
                 console.log(bottleneck);
                 console.log(edge);
                 throw new Error(`Bottleneck NaN, edge:${edge}`);
             }
             bottleneck = newMin
+            */
             walkS = edge.from;
         }
     }
@@ -187,13 +191,17 @@ function BKBottleneck(src: number, sink: number, connector: BKEdge, edgeToParent
         while (walkT != sink) {
             //if (parents[walkT] == NULL_PARENT) throw Error("Null parent in augmenting path");          
             let edge = edgeToParent[walkT];
+            bottleneck = Math.min(bottleneck, edge.cap - edge.flow);
+            /*
             let newMin  = Math.min(bottleneck, edge.cap - edge.flow);
+            
             if(isNaN(newMin)){
                 console.log(bottleneck);
                 console.log(edge);
                 throw new Error(`Bottleneck NaN, edge:${edge}`);
             }
             bottleneck = newMin;
+            */
             walkT = edge.to;
         }
     }

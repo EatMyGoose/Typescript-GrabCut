@@ -1,11 +1,13 @@
-import * as Cam from "./Camera";
+import * as Cam from "./Drawing2D";
+import * as Mat from "../Matrix";
+import * as T from "./Transform";
 
 //Note: Manage 2 separate queues of drawcalls in order to keep track of what 
 //to draw on the screen canvas and buffer canvas
 
 export interface IDrawCall{
     Draw(hDC: CanvasRenderingContext2D): void;
-    Transform(srcDim:Cam.Rect, destDim:Cam.Rect):IDrawCall;
+    Transform(transform:Mat.Matrix):IDrawCall;
 }
 
 //TODO: add option for the global compositing property 
@@ -38,11 +40,11 @@ export class HollowRectDrawCall implements IDrawCall{
         hDC.stroke();
     }
 
-    Transform(srcDim:Cam.Rect, destDim:Cam.Rect):IDrawCall{
-        let scale = Cam.GetScale(srcDim, destDim);
+    Transform(transform:Mat.Matrix):IDrawCall{
+        let scale = T.GetScalingFactor(transform)[0];
         let scaledWidth = this.width * scale;
         let transformed = new HollowRectDrawCall(this.colour, scaledWidth);
-        transformed.rect = Cam.TransformRect(this.rect, srcDim, destDim);
+        transformed.rect = T.TransformRect(transform, this.rect);
         return transformed;
     }
 }
@@ -90,9 +92,9 @@ export class InvertedRectDrawCall implements IDrawCall{
         hDC.stroke();
     }
 
-    Transform(srcDim:Cam.Rect, destDim:Cam.Rect):IDrawCall{
+    Transform(transform:Mat.Matrix):IDrawCall{
         let transformed = new InvertedRectDrawCall(this.colour);
-        transformed.rect = Cam.TransformRect(this.rect, srcDim, destDim);
+        transformed.rect = T.TransformRect(transform, this.rect);
         return transformed;
     }
 }
@@ -147,11 +149,11 @@ export class SegmentDrawCall implements IDrawCall{
         hDC.globalCompositeOperation = originalCompositingMode;
     }
     
-    Transform(srcDim:Cam.Rect, destDim:Cam.Rect):IDrawCall{
+    Transform(transform:Mat.Matrix):IDrawCall{
         let transformed = new SegmentDrawCall(null, null, this.colour, this.erase);
-        let scale = Cam.GetScale(srcDim, destDim);
+        let scale = T.GetScalingFactor(transform)[0];
         transformed.widths = this.widths.map(w => w * scale);
-        transformed.segments = this.segments.map(seg => Cam.Transform2D(seg, srcDim, destDim));
+        transformed.segments = this.segments.map(seg => T.Apply2DTransform(seg, transform));
         return transformed;
     }
 }

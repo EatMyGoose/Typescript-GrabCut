@@ -1,8 +1,10 @@
 import * as File from "./FileInput";
-import * as Cam from "./Camera";
+import * as Cam from "./Drawing2D";
 import { FGColour, BGColour, Model } from "./Model";
 import { CanvasView } from "./CanvasView";
 import * as Tools from "./ToolHandler";
+import * as Mat from "../Matrix";
+import * as T from "./Transform";
 
 interface ToolActions {
     name: string,
@@ -145,8 +147,9 @@ export class Controller {
     private Screen2Buffer(canvasPoint: Cam.Point): Cam.Point {
         let [bufferWidth, bufferHeight] = this.model.GetImageDim();
         let bufferDim = { x: 0, y: 0, width: bufferWidth, height: bufferHeight };
-        let canvasDim = this.canvasView.GetDrawRegion();
-        return Cam.Transform2D(canvasPoint, canvasDim, bufferDim);
+        let img2Canvas = this.canvasView.ImgToCanvasTransform();
+        let canvas2Img = Mat.Inverse(img2Canvas);
+        return T.Apply2DTransform(canvasPoint, canvas2Img);
     }
 
     private begin(this: Controller, e: MouseEvent) {

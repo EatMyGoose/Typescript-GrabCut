@@ -2,10 +2,11 @@ import { FileInput } from "./FileInput";
 import * as Cut from "../GrabCut";
 import * as ImgUtil from "./ImageUtil";
 import * as Util from "../Utility";
-import * as Cam from "./Camera";
+import * as Cam from "./Drawing2D";
 import { CanvasView } from "./CanvasView";
 import { PreviewView } from "./PreviewView";
-import * as Ed from "./Editor";
+import * as Ed from "./DrawCall";
+import * as Mat from "../Matrix";
 
 export const FGColour = new ImgUtil.RGBA(255,0,0,255); //Red
 export const BGColour = new ImgUtil.RGBA(0,0,255,255); //Blue
@@ -55,12 +56,12 @@ export class Model {
         this.TriggerCanvasRedraw();
     }
 
-    GetDrawOps(coordinateSpace:Cam.Rect): Ed.IDrawCall[] {
+    GetDrawOps(imgToDestTransform:Mat.Matrix): Ed.IDrawCall[] {
         let last = (this.pendingDrawOps == null)? [] : [this.pendingDrawOps];
         let merged = this.canvasDrawOps.concat(last);
-        let [width, height] = this.GetImageDim();
-        let bufferDim = {x:0, y:0, width:width, height:height};
-        return merged.map(drawOp => drawOp.Transform(bufferDim, coordinateSpace));
+        //let [width, height] = this.GetImageDim();
+        //let bufferDim = {x:0, y:0, width:width, height:height};
+        return merged.map(drawOp => drawOp.Transform(imgToDestTransform));
     }
 
     private TriggerCanvasRedraw() {
@@ -138,7 +139,8 @@ export class Model {
         let [width, height] = this.GetImageDim();
         let tempCanvas = new ImgUtil.Temp2DCanvas(width, height);
         let hDC = tempCanvas.GetHDC();
-        let ops = this.GetDrawOps(this.GetCoordSystem());
+        let Identity = Mat.Identity(3);
+        let ops = this.GetDrawOps(Identity);
         ops.forEach(op => op.Draw(hDC));
 
         let imgData = tempCanvas.GetImageData();

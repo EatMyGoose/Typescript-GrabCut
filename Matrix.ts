@@ -16,6 +16,10 @@ export function Clone(m:Matrix) : Matrix{
     return FromArray(rows);
 }
 
+export function OfDimensions(m:Matrix, nRows:number, nCols:number):boolean{
+    return m.length == nRows && m[0].length == nCols;
+}
+
 //Generates a Matrix containing random numbers uniformly distributed between lowerBound and upperBound
 export function RandomFill(lowerBound:Matrix, upperBound: Matrix):Matrix{
     let [nRows, nCols] = Dimensions(lowerBound);
