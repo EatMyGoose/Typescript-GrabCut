@@ -51,6 +51,41 @@ class MouseDebounce {
     }
 }
 
+class MouseDrag {
+    private lastX: number;
+    private lastY: number;
+    private active: boolean = false;
+
+    constructor() {
+    }
+
+    IsActive() {
+        return this.active;
+    }
+
+    Begin(x: number, y: number) {
+        this.lastX = x;
+        this.lastY = y;
+        this.active = true;
+    }
+
+    Drag(x: number, y: number): [number, number] {
+        if (!this.active) return [0, 0];
+
+        let diff: [number, number] = [this.lastX - x, this.lastY - y];
+        this.lastX = x;
+        this.lastY = y;
+        return diff;
+    }
+
+    End(x: number, y: number): [number, number] {
+        let diff = this.Drag(x, y);
+        this.active = false;
+        return diff;
+    }
+}
+
+
 export class Controller {
     canvasView: CanvasView;
     model: Model;
@@ -69,11 +104,13 @@ export class Controller {
     private toolHandler: Tools.IToolHandler = null;
     private debounce: MouseDebounce = new MouseDebounce();
 
+    private mDrag: MouseDrag = new MouseDrag();
+
     constructor(
-        file: File.FileInput, canvas: HTMLCanvasElement, 
-        cropBtn: HTMLInputElement, brushRadioBtns: HTMLInputElement[], 
+        file: File.FileInput, canvas: HTMLCanvasElement,
+        cropBtn: HTMLInputElement, brushRadioBtns: HTMLInputElement[],
         radiusRange: HTMLInputElement,
-        maxIter:ValidatedTextbox, tolerance:ValidatedTextbox) {
+        maxIter: ValidatedTextbox, tolerance: ValidatedTextbox) {
 
         this.file = file;
         this.canvas = canvas;
@@ -93,6 +130,8 @@ export class Controller {
         document.addEventListener("keydown", this.Undo.bind(this));
 
         cropBtn.addEventListener("click", this.triggerGrabCut.bind(this));
+
+        canvas.addEventListener("wheel", this.mouseScroll.bind(this));
     }
 
     AttachView(canvasView: CanvasView) {
@@ -138,6 +177,11 @@ export class Controller {
         return actions;
     }
 
+    private mouseScroll(e: WheelEvent) {
+        let zoomFactor = (e.deltaY < 0) ? 1.2 : 0.8;
+        this.canvasView.Zoom(zoomFactor);
+    }
+
     private Undo(this: Controller, e: KeyboardEvent) {
         if (e.ctrlKey && e.key == "z") {
             this.model.UndoLast();
@@ -145,59 +189,106 @@ export class Controller {
     }
 
     private Screen2Buffer(canvasPoint: Cam.Point): Cam.Point {
-        let [bufferWidth, bufferHeight] = this.model.GetImageDim();
-        let bufferDim = { x: 0, y: 0, width: bufferWidth, height: bufferHeight };
         let img2Canvas = this.canvasView.ImgToCanvasTransform();
         let canvas2Img = Mat.Inverse(img2Canvas);
         return T.Apply2DTransform(canvasPoint, canvas2Img);
     }
 
     private begin(this: Controller, e: MouseEvent) {
-
-        let leftPressed = e.button == LEFT_CLICK_SINGLE;
-        if (!leftPressed) return;
-
-        this.debounce.BeginMovement(e.clientX, e.clientY);
+        let redraw = false;
 
         let canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
-        let start = this.Screen2Buffer(canvasPoint);
+        //Buffer space (corresponds directly to the x,y coordinates on the bitmap)
+        let start = (this.model.ImageLoaded())? this.Screen2Buffer(canvasPoint) : Cam.origin; 
 
-        let initActions = this.GetSelectedBrush();
-        initActions.init();
-        this.toolHandler = initActions.drawHandlerFactory();
+        //Brushes
+        let leftPressed = e.button == LEFT_CLICK_SINGLE;
+        if (leftPressed) {
+            this.debounce.BeginMovement(e.clientX, e.clientY);
+            let initActions = this.GetSelectedBrush();
+            initActions.init();
+            this.toolHandler = initActions.drawHandlerFactory();
 
-        let drawCall = this.toolHandler.MouseDown(start);
-        this.model.BeginDrawCall(drawCall);
+            let drawCall = this.toolHandler.MouseDown(start);
+            this.model.BeginDrawCall(drawCall); //TODO: remove redraw call from model? 
+
+            redraw = true;
+        }
+
+        //Panning
+        let rightPressed = e.button == RIGHT_CLICK_SINGLE;
+        if (rightPressed) {
+            this.mDrag.Begin(canvasPoint.x, canvasPoint.y);
+            redraw = true;
+        }
+
+        if(redraw) this.canvasView.Draw();
     }
 
     private drag(this: Controller, e: MouseEvent) {
-        let leftDown = e.buttons & LEFT_CLICK_FLAG;
-        
-        if (this.toolHandler == null || !leftDown) return;
 
-        let notBebouncing = this.debounce.AllowUpdate(e.clientX, e.clientY);
-        if(!notBebouncing) return;
+
+        let redraw = false;
 
         let canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
-        let point = this.Screen2Buffer(canvasPoint);
+        let point = (this.model.ImageLoaded())? this.Screen2Buffer(canvasPoint) : Cam.origin;
 
-        let drawCall = this.toolHandler.MouseDrag(point);
-        this.model.UpdateDrawCall(drawCall, false);
+        //Brushes
+        let leftDown = e.buttons & LEFT_CLICK_FLAG;
+        let toolSelectedAndLeftDown = this.toolHandler != null && leftDown;
+
+        if (toolSelectedAndLeftDown) {
+            let notBebouncing = this.debounce.AllowUpdate(e.clientX, e.clientY);
+            if (notBebouncing) {
+                let drawCall = this.toolHandler.MouseDrag(point);
+                this.model.UpdateDrawCall(drawCall, false);
+
+                redraw = true;
+            }
+        }
+
+        //Panning
+        let rightDown = e.buttons & RIGHT_CLICK_FLAG;
+        if (rightDown && this.mDrag.IsActive()) {
+            //Use the canvas coordinates, rather than buffer coordinates
+            //Using the buffer coordinates causes a feedback loop that results in oscillations
+            let [xDiff, yDiff] = this.mDrag.Drag(canvasPoint.x, canvasPoint.y);
+            let scale = this.canvasView.GetZoomScale();
+            this.canvasView.Pan(xDiff / scale, yDiff / scale);
+            redraw = true;
+        }
+
+        if(redraw) this.canvasView.Draw();
     }
 
     private end(this: Controller, e: MouseEvent) {
-
-        let leftReleased = e.button == LEFT_CLICK_SINGLE;
-
-        if (this.toolHandler == null || !leftReleased) return;
+        let redraw = false;
 
         let canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
-        let point = this.Screen2Buffer(canvasPoint);
-        let drawCall = this.toolHandler.MouseUp(point);
-        this.model.UpdateDrawCall(drawCall, true);
+        let point = (this.model.ImageLoaded())? this.Screen2Buffer(canvasPoint) : Cam.origin;
 
-        //End control of current handler
-        this.toolHandler = null;
+        //Brushes
+        let leftReleased = e.button == LEFT_CLICK_SINGLE;
+        let toolSelected = this.toolHandler != null;
+
+        if (leftReleased && toolSelected) {
+            let drawCall = this.toolHandler.MouseUp(point);
+            this.model.UpdateDrawCall(drawCall, true);
+
+            //End control of current handler
+            this.toolHandler = null;
+
+            redraw = true;
+        }
+
+        //Panning
+        let rightReleased = e.button == RIGHT_CLICK_SINGLE;
+        if (rightReleased && this.mDrag.IsActive()) {
+            this.mDrag.End(0,0);
+            redraw = true;
+        }
+
+        if(redraw) this.canvasView.Draw();
     }
 
 }

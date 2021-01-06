@@ -1,5 +1,11 @@
 import { Dictionary, dictKey } from "./Collections";
 
+export function Clamp(val:number, upper:number, lower:number){
+    if(val > upper) return upper;
+    if(val < lower) return lower;
+    return val;
+}
+
 export function PerfectlyDivisible(val:number, divisor:number):boolean{
     let div = val / divisor;
     return Math.floor(val) == val;

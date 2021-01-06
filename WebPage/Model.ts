@@ -81,6 +81,10 @@ export class Model {
         this.canvasDrawOps = [];
     }
 
+    ImageLoaded():boolean{
+        return this.originalImage != null;
+    }
+
     SetImage(this: Model, imageURL: string): void {
         this.ClearSelection();
         this.croppedImage = null;
@@ -109,6 +113,7 @@ export class Model {
                 this.originalImageData = hDC.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
                 this.originalImage = img;
                 //Fire off the (canvas) view's draw event
+                this.canvasView.InitImageLoad();
                 this.TriggerCanvasRedraw();
                 this.preview.Draw();
             });

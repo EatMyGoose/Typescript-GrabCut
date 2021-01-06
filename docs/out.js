@@ -15,7 +15,15 @@ var __extends = (this && this.__extends) || (function () {
 define("Utility", ["require", "exports", "Collections"], function (require, exports, Collections_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.UniqueRandom = exports.Fill2DRect = exports.HashItems = exports.Sum = exports.Max = exports.Swap = exports.Zip = exports.Fill2DObj = exports.FillObj = exports.Memset = exports.Fill = exports.PerfectlyDivisible = void 0;
+    exports.UniqueRandom = exports.Fill2DRect = exports.HashItems = exports.Sum = exports.Max = exports.Swap = exports.Zip = exports.Fill2DObj = exports.FillObj = exports.Memset = exports.Fill = exports.PerfectlyDivisible = exports.Clamp = void 0;
+    function Clamp(val, upper, lower) {
+        if (val > upper)
+            return upper;
+        if (val < lower)
+            return lower;
+        return val;
+    }
+    exports.Clamp = Clamp;
     function PerfectlyDivisible(val, divisor) {
         var div = val / divisor;
         return Math.floor(val) == val;
@@ -2575,6 +2583,9 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
             this.pendingDrawOps = null;
             this.canvasDrawOps = [];
         };
+        Model.prototype.ImageLoaded = function () {
+            return this.originalImage != null;
+        };
         Model.prototype.SetImage = function (imageURL) {
             var _this = this;
             this.ClearSelection();
@@ -2597,6 +2608,7 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
                 hDC.drawImage(img, 0, 0);
                 _this.originalImageData = hDC.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
                 _this.originalImage = img;
+                _this.canvasView.InitImageLoad();
                 _this.TriggerCanvasRedraw();
                 _this.preview.Draw();
             });
@@ -2667,7 +2679,7 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
     }());
     exports.Model = Model;
 });
-define("WebPage/CanvasView", ["require", "exports", "WebPage/Transform"], function (require, exports, T) {
+define("WebPage/CanvasView", ["require", "exports", "WebPage/Transform", "Utility"], function (require, exports, T, Util) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.CanvasView = void 0;
@@ -2675,7 +2687,7 @@ define("WebPage/CanvasView", ["require", "exports", "WebPage/Transform"], functi
         function CanvasView(imgCanvas, editingCanvas) {
             this.ZOOM_MAX = 2.0;
             this.ZOOM_MIN = 0;
-            this.zoomFactor = 1.0;
+            this.zoomFactor = 0;
             this.offsetX = 0;
             this.offsetY = 0;
             this.imgCanvas = imgCanvas;
@@ -2686,6 +2698,8 @@ define("WebPage/CanvasView", ["require", "exports", "WebPage/Transform"], functi
             this.model = model;
         };
         CanvasView.prototype.GetMinScale = function () {
+            CanvasView.ResizeBufferToClientSize(this.editingCanvas);
+            CanvasView.ResizeBufferToClientSize(this.imgCanvas);
             var _a = [this.imgCanvas.width, this.imgCanvas.height], width = _a[0], height = _a[1];
             var _b = this.model.GetImageDim(), imgWidth = _b[0], imgHeight = _b[1];
             var minScale = Math.min((width / imgWidth), (height / imgHeight));
@@ -2697,11 +2711,35 @@ define("WebPage/CanvasView", ["require", "exports", "WebPage/Transform"], functi
             var scale = this.GetMinScale();
             return [imgWidth * scale, imgHeight * scale];
         };
+        CanvasView.prototype.InitImageLoad = function () {
+            var minZoom = this.GetMinScale();
+            this.ZOOM_MIN = minZoom;
+            this.zoomFactor = minZoom;
+            this.offsetX = 0;
+            this.offsetY = 0;
+        };
+        CanvasView.prototype.Pan = function (xShift, yShift) {
+            var _a = this.model.GetImageDim(), imgWidth = _a[0], imgHeight = _a[1];
+            var _b = [imgWidth * 0.5, imgHeight * 0.5], halfWidth = _b[0], halfHeight = _b[1];
+            var _c = [this.offsetX + xShift, this.offsetY + yShift], newX = _c[0], newY = _c[1];
+            this.offsetX = Util.Clamp(newX, halfWidth, -halfWidth);
+            this.offsetY = Util.Clamp(newY, halfHeight, -halfHeight);
+            return (this.offsetX == newX) && (this.offsetY == newY);
+        };
+        CanvasView.prototype.GetZoomScale = function () {
+            return this.zoomFactor;
+        };
+        CanvasView.prototype.Zoom = function (factor) {
+            var newZoom = this.zoomFactor * factor;
+            this.zoomFactor = Util.Clamp(newZoom, this.ZOOM_MAX, this.ZOOM_MIN);
+            this.Draw();
+            return this.zoomFactor == newZoom;
+        };
         CanvasView.prototype.ImgToCanvasTransform = function () {
             var _a = [this.imgCanvas.width, this.imgCanvas.height], cWidth = _a[0], cHeight = _a[1];
             var _b = this.model.GetImageDim(), imgWidth = _b[0], imgHeight = _b[1];
-            var xOffset = cWidth * 0.5 - ((imgWidth + this.offsetX) * 0.5 * this.zoomFactor);
-            var yOffset = cHeight * 0.5 - ((imgHeight + this.offsetY) * 0.5 * this.zoomFactor);
+            var xOffset = cWidth * 0.5 - ((imgWidth * 0.5 + this.offsetX) * this.zoomFactor);
+            var yOffset = cHeight * 0.5 - ((imgHeight * 0.5 + this.offsetY) * this.zoomFactor);
             var translation = T.Translate2D(xOffset, yOffset);
             var zoom = T.Scale2D(this.zoomFactor, this.zoomFactor);
             var _c = T.ChainTransform(translation, zoom), transform = _c[0], _ = _c[1];
@@ -2719,7 +2757,6 @@ define("WebPage/CanvasView", ["require", "exports", "WebPage/Transform"], functi
             if (img == null)
                 return;
             var _b = this.model.GetImageDim(), imgWidth = _b[0], imgHeight = _b[1];
-            this.zoomFactor = this.GetMinScale();
             var imgRect = { x: 0, y: 0, width: imgWidth, height: imgHeight };
             var imgToCanvas = this.ImgToCanvasTransform();
             var canvasImgRect = T.TransformRect(imgToCanvas, imgRect);
@@ -2868,10 +2905,38 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPag
         };
         return MouseDebounce;
     }());
+    var MouseDrag = (function () {
+        function MouseDrag() {
+            this.active = false;
+        }
+        MouseDrag.prototype.IsActive = function () {
+            return this.active;
+        };
+        MouseDrag.prototype.Begin = function (x, y) {
+            this.lastX = x;
+            this.lastY = y;
+            this.active = true;
+        };
+        MouseDrag.prototype.Drag = function (x, y) {
+            if (!this.active)
+                return [0, 0];
+            var diff = [this.lastX - x, this.lastY - y];
+            this.lastX = x;
+            this.lastY = y;
+            return diff;
+        };
+        MouseDrag.prototype.End = function (x, y) {
+            var diff = this.Drag(x, y);
+            this.active = false;
+            return diff;
+        };
+        return MouseDrag;
+    }());
     var Controller = (function () {
         function Controller(file, canvas, cropBtn, brushRadioBtns, radiusRange, maxIter, tolerance) {
             this.toolHandler = null;
             this.debounce = new MouseDebounce();
+            this.mDrag = new MouseDrag();
             this.file = file;
             this.canvas = canvas;
             this.cropBtn = cropBtn;
@@ -2885,6 +2950,7 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPag
             canvas.addEventListener("contextmenu", function (e) { return e.preventDefault(); });
             document.addEventListener("keydown", this.Undo.bind(this));
             cropBtn.addEventListener("click", this.triggerGrabCut.bind(this));
+            canvas.addEventListener("wheel", this.mouseScroll.bind(this));
         }
         Controller.prototype.AttachView = function (canvasView) {
             this.canvasView = canvasView;
@@ -2921,52 +2987,85 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPag
             var actions = actionMappings.find(function (t) { return t.name == selected.value; });
             return actions;
         };
+        Controller.prototype.mouseScroll = function (e) {
+            var zoomFactor = (e.deltaY < 0) ? 1.2 : 0.8;
+            this.canvasView.Zoom(zoomFactor);
+        };
         Controller.prototype.Undo = function (e) {
             if (e.ctrlKey && e.key == "z") {
                 this.model.UndoLast();
             }
         };
         Controller.prototype.Screen2Buffer = function (canvasPoint) {
-            var _a = this.model.GetImageDim(), bufferWidth = _a[0], bufferHeight = _a[1];
-            var bufferDim = { x: 0, y: 0, width: bufferWidth, height: bufferHeight };
             var img2Canvas = this.canvasView.ImgToCanvasTransform();
             var canvas2Img = Mat.Inverse(img2Canvas);
             return T.Apply2DTransform(canvasPoint, canvas2Img);
         };
         Controller.prototype.begin = function (e) {
-            var leftPressed = e.button == LEFT_CLICK_SINGLE;
-            if (!leftPressed)
-                return;
-            this.debounce.BeginMovement(e.clientX, e.clientY);
+            var redraw = false;
             var canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
-            var start = this.Screen2Buffer(canvasPoint);
-            var initActions = this.GetSelectedBrush();
-            initActions.init();
-            this.toolHandler = initActions.drawHandlerFactory();
-            var drawCall = this.toolHandler.MouseDown(start);
-            this.model.BeginDrawCall(drawCall);
+            var start = (this.model.ImageLoaded()) ? this.Screen2Buffer(canvasPoint) : Cam.origin;
+            var leftPressed = e.button == LEFT_CLICK_SINGLE;
+            if (leftPressed) {
+                this.debounce.BeginMovement(e.clientX, e.clientY);
+                var initActions = this.GetSelectedBrush();
+                initActions.init();
+                this.toolHandler = initActions.drawHandlerFactory();
+                var drawCall = this.toolHandler.MouseDown(start);
+                this.model.BeginDrawCall(drawCall);
+                redraw = true;
+            }
+            var rightPressed = e.button == RIGHT_CLICK_SINGLE;
+            if (rightPressed) {
+                this.mDrag.Begin(canvasPoint.x, canvasPoint.y);
+                redraw = true;
+            }
+            if (redraw)
+                this.canvasView.Draw();
         };
         Controller.prototype.drag = function (e) {
-            var leftDown = e.buttons & LEFT_CLICK_FLAG;
-            if (this.toolHandler == null || !leftDown)
-                return;
-            var notBebouncing = this.debounce.AllowUpdate(e.clientX, e.clientY);
-            if (!notBebouncing)
-                return;
+            var redraw = false;
             var canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
-            var point = this.Screen2Buffer(canvasPoint);
-            var drawCall = this.toolHandler.MouseDrag(point);
-            this.model.UpdateDrawCall(drawCall, false);
+            var point = (this.model.ImageLoaded()) ? this.Screen2Buffer(canvasPoint) : Cam.origin;
+            var leftDown = e.buttons & LEFT_CLICK_FLAG;
+            var toolSelectedAndLeftDown = this.toolHandler != null && leftDown;
+            if (toolSelectedAndLeftDown) {
+                var notBebouncing = this.debounce.AllowUpdate(e.clientX, e.clientY);
+                if (notBebouncing) {
+                    var drawCall = this.toolHandler.MouseDrag(point);
+                    this.model.UpdateDrawCall(drawCall, false);
+                    redraw = true;
+                }
+            }
+            var rightDown = e.buttons & RIGHT_CLICK_FLAG;
+            if (rightDown && this.mDrag.IsActive()) {
+                var _a = this.mDrag.Drag(canvasPoint.x, canvasPoint.y), xDiff = _a[0], yDiff = _a[1];
+                var scale = this.canvasView.GetZoomScale();
+                this.canvasView.Pan(xDiff / scale, yDiff / scale);
+                redraw = true;
+            }
+            if (redraw)
+                this.canvasView.Draw();
         };
         Controller.prototype.end = function (e) {
-            var leftReleased = e.button == LEFT_CLICK_SINGLE;
-            if (this.toolHandler == null || !leftReleased)
-                return;
+            var redraw = false;
             var canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
-            var point = this.Screen2Buffer(canvasPoint);
-            var drawCall = this.toolHandler.MouseUp(point);
-            this.model.UpdateDrawCall(drawCall, true);
-            this.toolHandler = null;
+            var point = (this.model.ImageLoaded()) ? this.Screen2Buffer(canvasPoint) : Cam.origin;
+            var leftReleased = e.button == LEFT_CLICK_SINGLE;
+            var toolSelected = this.toolHandler != null;
+            if (leftReleased && toolSelected) {
+                var drawCall = this.toolHandler.MouseUp(point);
+                this.model.UpdateDrawCall(drawCall, true);
+                this.toolHandler = null;
+                redraw = true;
+            }
+            var rightReleased = e.button == RIGHT_CLICK_SINGLE;
+            if (rightReleased && this.mDrag.IsActive()) {
+                this.mDrag.End(0, 0);
+                redraw = true;
+            }
+            if (redraw)
+                this.canvasView.Draw();
         };
         return Controller;
     }());

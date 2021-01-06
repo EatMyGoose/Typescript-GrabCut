@@ -2,6 +2,7 @@ import { Model } from "./Model";
 import * as Cam from "./Drawing2D";
 import * as T from "Transform";
 import * as Mat from "../Matrix";
+import * as Util from "../Utility";
 
 export class CanvasView {
     drawRegion: Cam.Rect; //in screen space
@@ -9,9 +10,9 @@ export class CanvasView {
     editingCanvas: HTMLCanvasElement;
     model: Model;
 
-    private ZOOM_MAX: number = 2.0;
+    private readonly ZOOM_MAX: number = 2.0;
     private ZOOM_MIN: number = 0;
-    private zoomFactor = 1.0;
+    private zoomFactor = 0;
 
     //Offsets from the centre of the image
     private offsetX: number = 0;
@@ -29,6 +30,9 @@ export class CanvasView {
     }
 
     private GetMinScale(): number {
+        CanvasView.ResizeBufferToClientSize(this.editingCanvas);
+        CanvasView.ResizeBufferToClientSize(this.imgCanvas);
+        
         let [width, height] = [this.imgCanvas.width, this.imgCanvas.height];
         let [imgWidth, imgHeight] = this.model.GetImageDim();
 
@@ -43,14 +47,45 @@ export class CanvasView {
         return [imgWidth * scale, imgHeight * scale];
     }
 
+    InitImageLoad(){
+        let minZoom = this.GetMinScale();
+        this.ZOOM_MIN = minZoom;
+        this.zoomFactor = minZoom;
+        //Recentre image
+        this.offsetX = 0; 
+        this.offsetY = 0;
+    }
+
+    Pan(xShift:number, yShift:number):boolean{
+        let [imgWidth, imgHeight] = this.model.GetImageDim();
+        let [halfWidth, halfHeight] = [imgWidth * 0.5, imgHeight * 0.5];
+        let [newX, newY] = [this.offsetX + xShift, this.offsetY + yShift];
+        this.offsetX = Util.Clamp(newX, halfWidth, -halfWidth);
+        this.offsetY = Util.Clamp(newY, halfHeight, -halfHeight);
+
+        return (this.offsetX == newX) && (this.offsetY == newY);
+    }
+
+    GetZoomScale():number{
+        return this.zoomFactor;
+    }
+
+    Zoom(factor:number):boolean{
+        let newZoom = this.zoomFactor * factor;
+        this.zoomFactor = Util.Clamp(newZoom, this.ZOOM_MAX, this.ZOOM_MIN);
+
+        this.Draw(); //Scaling has changed, redraw
+        return this.zoomFactor == newZoom;
+    }
+
     ImgToCanvasTransform(): Mat.Matrix {
         //Translate from image to canvas space
         //When offsetX and offsetY are 0, the image is centred on the canvas
         let [cWidth, cHeight] = [this.imgCanvas.width, this.imgCanvas.height];
         let [imgWidth, imgHeight] = this.model.GetImageDim();
 
-        let xOffset = cWidth * 0.5 - ((imgWidth + this.offsetX) * 0.5 * this.zoomFactor);
-        let yOffset = cHeight * 0.5 - ((imgHeight + this.offsetY) * 0.5 * this.zoomFactor);
+        let xOffset = cWidth * 0.5 - ((imgWidth * 0.5 + this.offsetX) * this.zoomFactor);
+        let yOffset = cHeight * 0.5 - ((imgHeight * 0.5 + this.offsetY) * this.zoomFactor);
         let translation = T.Translate2D(xOffset, yOffset);
         let zoom = T.Scale2D(this.zoomFactor, this.zoomFactor);
 
@@ -74,8 +109,6 @@ export class CanvasView {
         if (img == null) return;
 
         let [imgWidth, imgHeight] = this.model.GetImageDim();
-
-        this.zoomFactor = this.GetMinScale();
 
         let imgRect: Cam.Rect = { x: 0, y: 0, width: imgWidth, height: imgHeight };
         let imgToCanvas = this.ImgToCanvasTransform();
