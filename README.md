@@ -32,9 +32,10 @@ Potentially useful titbits you might find in this project - Typescript implement
 
 <h4>Work in progress</h4>
 <ul>
-  <li>Add zoom + panning features to user touchup</li>
   <li>Downscale large images before constructing the colour GMM models</li>
-  <li>Add fiddly knobs to control more parameters (i.e. no. of GMM colour clusters or Grabcut iterations)</li>
+  <li>Add fiddly knobs to control more parameters (i.e. no. of GMM colour clusters / Cohesiveness factor)</li>
+  <li>Route existing console messages to a visible progress bar during Grabcut to give the illusion of progress</li>
+  <li><del>Add zoom + panning features to user touchup</del></li>
   <li><del>Support export of images without premultiplied alpha so colour data isn't lost</del></li>
   <li><del>[Optimization of graph cut] Replace Dinic's algorithm with Boykov Kolmogorov's max flow algorithm (the repeated BFS on the source node kills performance)</del></li>
 </ul>
