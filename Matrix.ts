@@ -2,30 +2,41 @@ export type Matrix = number[][];
 
 //TODO: helper function for operating on arrays of matrices? (loops iterating through them will be slow)
 
-export function Print(m:Matrix) : string{
-    let lines = m.map(r => "[" + r.join(',') + "]" );
+export function Print(m: Matrix): string {
+    let lines = m.map(r => "[" + r.join(',') + "]");
     return "[" + lines.join('\n') + "]";
 }
 
-export function Clone(m:Matrix) : Matrix{
+export function Clone(m: Matrix): Matrix {
     let [nRows, nCols] = Dimensions(m);
     let rows = new Array(nRows);
-    for(let r = 0; r < nRows; r++){
+    for (let r = 0; r < nRows; r++) {
         rows[r] = m[r].slice(0);
     }
     return FromArray(rows);
 }
 
-export function OfDimensions(m:Matrix, nRows:number, nCols:number):boolean{
+export function OfDimensions(m: Matrix, nRows: number, nCols: number): boolean {
     return m.length == nRows && m[0].length == nCols;
 }
 
+export function Any(m: Matrix, fnPredicate: (element: number) => boolean): boolean {
+    let [nRows, nCols] = Dimensions(m);
+    for (let r = 0; r < nRows; r++) {
+        for (let c = 0; c < nCols; c++) {
+            let e = m[r][c];
+            if (fnPredicate(c)) return true;
+        }
+    }
+    return false;
+}
+
 //Generates a Matrix containing random numbers uniformly distributed between lowerBound and upperBound
-export function RandomFill(lowerBound:Matrix, upperBound: Matrix):Matrix{
+export function RandomFill(lowerBound: Matrix, upperBound: Matrix): Matrix {
     let [nRows, nCols] = Dimensions(lowerBound);
     let random = CreateMatrix(nRows, nCols);
-    for(let r = 0; r < nRows; r++){
-        for(let c = 0; c < nCols; c++){
+    for (let r = 0; r < nRows; r++) {
+        for (let c = 0; c < nCols; c++) {
             let lower = lowerBound[r][c];
             let upper = upperBound[r][c];
             random[r][c] = Math.random() * (upper - lower) + lower;
@@ -46,7 +57,7 @@ export function CreateMatrix(rows: number, columns: number): Matrix {
     let mat = new Array(rows);
     for (let r = 0; r < rows; r++) {
         let newRow = new Array(columns);
-        for(let c = 0; c < columns; c++){
+        for (let c = 0; c < columns; c++) {
             newRow[c] = 0;
         }
         mat[r] = newRow;
@@ -54,31 +65,31 @@ export function CreateMatrix(rows: number, columns: number): Matrix {
     return mat;
 }
 
-export function Norm(m:Matrix):number{
+export function Norm(m: Matrix): number {
     let [rows, cols] = Dimensions(m);
     let nElems = rows * cols;
     let acc = 0;
-    for(let r = 0; r < rows; r++){
-        for(let c = 0; c < cols; c++){
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
             acc += m[r][c] * m[r][c];
         }
     }
     return Math.pow(acc, 1 / nElems);
 }
 
-export function Identity(side:number) : Matrix{
+export function Identity(side: number): Matrix {
     let id = CreateMatrix(side, side);
-    for(let i = 0; i < side; i++){
+    for (let i = 0; i < side; i++) {
         id[i][i] = 1;
     }
     return id;
 }
 
-export function NormSquare(m:Matrix): number{
+export function NormSquare(m: Matrix): number {
     let [rows, cols] = Dimensions(m);
     let acc = 0;
-    for(let r = 0; r < rows; r++){
-        for(let c = 0; c < cols; c++){
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
             acc += m[r][c] * m[r][c];
         }
     }
@@ -148,10 +159,10 @@ export function Add(m1: Matrix, m2: Matrix): Matrix {
     return sum
 }
 
-export function AddInPlace(acc:Matrix, add:Matrix):void{
+export function AddInPlace(acc: Matrix, add: Matrix): void {
     let [nRows, nCols] = Dimensions(acc);
-    for(let r  = 0; r < nRows; r++){
-        for(let c = 0; c < nCols; c++){
+    for (let r = 0; r < nRows; r++) {
+        for (let c = 0; c < nCols; c++) {
             acc[r][c] += add[r][c]
         }
     }
@@ -181,20 +192,20 @@ export function AddScalar(scalar: number, m1: Matrix): Matrix {
     return result;
 }
 
-export interface MeanAndCov{
-    mean:Matrix;
-    covariance:Matrix;
+export interface MeanAndCov {
+    mean: Matrix;
+    covariance: Matrix;
 }
 
 //Expects vectors as the input
-export function MeanAndCovariance(data:Matrix[]): MeanAndCov{
-    if(!IsVector(data[0])) throw Error("MeanAndCovariance: Vector input required");
-    
+export function MeanAndCovariance(data: Matrix[]): MeanAndCov {
+    if (!IsVector(data[0])) throw Error("MeanAndCovariance: Vector input required");
+
     let [nRows, nCols] = Dimensions(data[0])
     let nData = data.length;
     //Mean
     let meanAcc = CreateMatrix(nRows, nCols);
-    for(let i = 0; i < data.length; i++){
+    for (let i = 0; i < data.length; i++) {
         AddInPlace(meanAcc, data[i]);
     }
     let mean = Scale(1 / nData, meanAcc);
@@ -202,15 +213,50 @@ export function MeanAndCovariance(data:Matrix[]): MeanAndCov{
     //Covariance
     let side = Math.max(nRows, nCols);
     let covAcc = CreateMatrix(side, side);
-    for(let i = 0; i < data.length; i++){
-        let diff = Sub(data[i],mean);
+    for (let i = 0; i < data.length; i++) {
+        let diff = Sub(data[i], mean);
         let diffTransposed = Transpose(diff);
         let add = Mul(diff, diffTransposed);
         AddInPlace(covAcc, add);
     }
     let covariance = Scale(1 / nData, covAcc);
 
-    return {mean:mean, covariance:covariance} as MeanAndCov;
+    return { mean: mean, covariance: covariance } as MeanAndCov;
+}
+
+//Expects vectors as the input
+//Only processes data whose value in "labels" matches the value of tag at each index.
+export function MeanAndCovarianceFromLabelledData(tag: number, labels: number[], data: Matrix[]): MeanAndCov {
+    if (!IsVector(data[0])) throw Error("MeanAndCovariance: Vector input required");
+
+    let [nRows, nCols] = Dimensions(data[0])
+    let nData = 0;
+    //Mean
+    let meanAcc = CreateMatrix(nRows, nCols);
+    for (let i = 0; i < data.length; i++) {
+        if (labels[i] == tag) {
+            AddInPlace(meanAcc, data[i]);
+            nData++;
+        }
+    }
+
+    let mean = Scale(1 / nData, meanAcc);
+
+    //Covariance
+    let side = Math.max(nRows, nCols);
+    let covAcc = CreateMatrix(side, side);
+
+    for (let i = 0; i < data.length; i++) {
+        if (labels[i] == tag) {
+            let diff = Sub(data[i], mean);
+            let diffTransposed = Transpose(diff);
+            let add = Mul(diff, diffTransposed);
+            AddInPlace(covAcc, add);
+        }
+    }
+    let covariance = Scale(1 / nData, covAcc);
+
+    return { mean: mean, covariance: covariance } as MeanAndCov;
 }
 
 //Determinant of an NxN matrix
@@ -249,14 +295,14 @@ export function Determinant(m: Matrix): number {
     }
 }
 
-export function SubMatrix(m1: Matrix, row:number, col:Number): Matrix{
+export function SubMatrix(m1: Matrix, row: number, col: Number): Matrix {
     let [nRows, nCols] = Dimensions(m1);
-    let sub:number[][] = [];
-    for(let r = 0; r < nRows; r++){
-        if(r == row) continue;
+    let sub: number[][] = [];
+    for (let r = 0; r < nRows; r++) {
+        if (r == row) continue;
         let newRow = [];
-        for(let c = 0; c < nCols; c++){
-            if(c == col) continue;
+        for (let c = 0; c < nCols; c++) {
+            if (c == col) continue;
             newRow.push(m1[r][c]);
         }
         sub.push(newRow);
@@ -269,7 +315,7 @@ export function Cofactors(m1: Matrix): Matrix {
     let minors = CreateMatrix(nRows, nCols);
     for (let r = 0; r < nRows; r++) {
         //Rows alternate between starting pos & neg, first row is pos.
-        let even = ((r & 1) == 0); 
+        let even = ((r & 1) == 0);
         for (let c = 0; c < nCols; c++) {
             let sub = SubMatrix(m1, r, c);
             let sign = even ? 1 : -1;
@@ -304,28 +350,28 @@ export function Inverse(m1: Matrix): Matrix {
     return Scale(1.0 / det, adjugate);
 }
 
-export function MaxElement(m:Matrix):number{
+export function MaxElement(m: Matrix): number {
     let [nRows, nCols] = Dimensions(m);
     let max = m[0][0]
-    for(let r = 0; r < nRows; r++){
-        for(let c = 0; c < nCols; c++){
+    for (let r = 0; r < nRows; r++) {
+        for (let c = 0; c < nCols; c++) {
             max = Math.max(max, m[r][c]);
         }
     }
     return max;
 }
 
-export function IsColumnVector(m:Matrix):boolean{
+export function IsColumnVector(m: Matrix): boolean {
     let [nRows, nCols] = Dimensions(m);
     return nCols == 1;
 }
 
-export function IsRowVector(m:Matrix):boolean{
+export function IsRowVector(m: Matrix): boolean {
     let [nRows, nCols] = Dimensions(m);
     return nRows == 1;
 }
 
-export function IsVector(m:Matrix):boolean{
+export function IsVector(m: Matrix): boolean {
     return IsColumnVector(m) || IsRowVector(m);
 }
 

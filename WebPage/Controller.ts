@@ -131,7 +131,7 @@ export class Controller {
 
         cropBtn.addEventListener("click", this.triggerGrabCut.bind(this));
 
-        canvas.addEventListener("wheel", this.mouseScroll.bind(this));
+        canvas.addEventListener("wheel", this.mouseScroll.bind(this), {passive:true});
     }
 
     AttachView(canvasView: CanvasView) {

@@ -28,7 +28,6 @@ export class FileInput {
     }
 
     RegisterImageLoad(callback: CallbackAction): void {
-        console.log(callback);
         this.listeners.push(callback);
     }
 }

@@ -15,7 +15,7 @@ var __extends = (this && this.__extends) || (function () {
 define("Utility", ["require", "exports", "Collections"], function (require, exports, Collections_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.UniqueRandom = exports.Fill2DRect = exports.HashItems = exports.Sum = exports.Max = exports.Swap = exports.Zip = exports.Fill2DObj = exports.FillObj = exports.Memset = exports.Fill = exports.PerfectlyDivisible = exports.Clamp = void 0;
+    exports.UniqueRandom = exports.Fill2DRect = exports.HashItems = exports.Sum = exports.Max = exports.Swap = exports.Zip = exports.Fill2DObj = exports.FillObj = exports.Memset = exports.Fill = exports.Range = exports.PerfectlyDivisible = exports.Clamp = void 0;
     function Clamp(val, upper, lower) {
         if (val > upper)
             return upper;
@@ -26,9 +26,19 @@ define("Utility", ["require", "exports", "Collections"], function (require, expo
     exports.Clamp = Clamp;
     function PerfectlyDivisible(val, divisor) {
         var div = val / divisor;
-        return Math.floor(val) == val;
+        return Math.floor(div) == div;
     }
     exports.PerfectlyDivisible = PerfectlyDivisible;
+    function Range(lowerInclusive, upperExclusive) {
+        var nElem = upperExclusive - lowerInclusive;
+        var arr = new Array(nElem);
+        var ind = 0;
+        for (var val = lowerInclusive; val < upperExclusive; val += 1) {
+            arr[ind++] = val;
+        }
+        return arr;
+    }
+    exports.Range = Range;
     function Fill(length, value) {
         var arr = new Array(length);
         for (var i = 0; i < arr.length; i++) {
@@ -382,6 +392,8 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
         BKNetwork.prototype.CreateEdge = function (source, dest, capacity) {
             if (isNaN(capacity))
                 throw new Error("capacity cannot be NaN");
+            if (!isFinite(capacity))
+                throw new Error("Infinite capacity");
             var edgeInd = this.edges.length;
             var edge = new BKEdge(source, dest, capacity, edgeInd);
             this.edges.push(edge);
@@ -643,7 +655,7 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
 define("Matrix", ["require", "exports"], function (require, exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.IsVector = exports.IsRowVector = exports.IsColumnVector = exports.MaxElement = exports.Inverse = exports.Cofactors = exports.SubMatrix = exports.Determinant = exports.MeanAndCovariance = exports.AddScalar = exports.Sub = exports.AddInPlace = exports.Add = exports.Scale = exports.Transpose = exports.Mul = exports.FromArray = exports.IsSquare = exports.Dimensions = exports.NormSquare = exports.Identity = exports.Norm = exports.CreateMatrix = exports.Columns = exports.Rows = exports.RandomFill = exports.OfDimensions = exports.Clone = exports.Print = void 0;
+    exports.IsVector = exports.IsRowVector = exports.IsColumnVector = exports.MaxElement = exports.Inverse = exports.Cofactors = exports.SubMatrix = exports.Determinant = exports.MeanAndCovarianceFromLabelledData = exports.MeanAndCovariance = exports.AddScalar = exports.Sub = exports.AddInPlace = exports.Add = exports.Scale = exports.Transpose = exports.Mul = exports.FromArray = exports.IsSquare = exports.Dimensions = exports.NormSquare = exports.Identity = exports.Norm = exports.CreateMatrix = exports.Columns = exports.Rows = exports.RandomFill = exports.Any = exports.OfDimensions = exports.Clone = exports.Print = void 0;
     function Print(m) {
         var lines = m.map(function (r) { return "[" + r.join(',') + "]"; });
         return "[" + lines.join('\n') + "]";
@@ -662,6 +674,18 @@ define("Matrix", ["require", "exports"], function (require, exports) {
         return m.length == nRows && m[0].length == nCols;
     }
     exports.OfDimensions = OfDimensions;
+    function Any(m, fnPredicate) {
+        var _a = Dimensions(m), nRows = _a[0], nCols = _a[1];
+        for (var r = 0; r < nRows; r++) {
+            for (var c = 0; c < nCols; c++) {
+                var e = m[r][c];
+                if (fnPredicate(c))
+                    return true;
+            }
+        }
+        return false;
+    }
+    exports.Any = Any;
     function RandomFill(lowerBound, upperBound) {
         var _a = Dimensions(lowerBound), nRows = _a[0], nCols = _a[1];
         var random = CreateMatrix(nRows, nCols);
@@ -840,6 +864,33 @@ define("Matrix", ["require", "exports"], function (require, exports) {
         return { mean: mean, covariance: covariance };
     }
     exports.MeanAndCovariance = MeanAndCovariance;
+    function MeanAndCovarianceFromLabelledData(tag, labels, data) {
+        if (!IsVector(data[0]))
+            throw Error("MeanAndCovariance: Vector input required");
+        var _a = Dimensions(data[0]), nRows = _a[0], nCols = _a[1];
+        var nData = 0;
+        var meanAcc = CreateMatrix(nRows, nCols);
+        for (var i = 0; i < data.length; i++) {
+            if (labels[i] == tag) {
+                AddInPlace(meanAcc, data[i]);
+                nData++;
+            }
+        }
+        var mean = Scale(1 / nData, meanAcc);
+        var side = Math.max(nRows, nCols);
+        var covAcc = CreateMatrix(side, side);
+        for (var i = 0; i < data.length; i++) {
+            if (labels[i] == tag) {
+                var diff = Sub(data[i], mean);
+                var diffTransposed = Transpose(diff);
+                var add = Mul(diff, diffTransposed);
+                AddInPlace(covAcc, add);
+            }
+        }
+        var covariance = Scale(1 / nData, covAcc);
+        return { mean: mean, covariance: covariance };
+    }
+    exports.MeanAndCovarianceFromLabelledData = MeanAndCovarianceFromLabelledData;
     function Determinant(m) {
         var square = IsSquare(m);
         if (!square) {
@@ -1299,6 +1350,12 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections", "Con
                 cumProb[i] = acc;
             }
             var max = cumProb[cumProb.length - 1];
+            if (max == 0) {
+                var equalCentres = new Array(nClusters);
+                for (var i = 0; i < nClusters; i++)
+                    equalCentres[i] = data[firstIndex];
+                return [false, equalCentres];
+            }
             var selectedIndex = 0;
             do {
                 var rand = Math.random() * max;
@@ -1312,33 +1369,41 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections", "Con
             selected.Set(selectedIndex, true);
             centres.push(data[selectedIndex]);
         }
-        return centres;
+        return [true, centres];
     }
     function Fit(data, nClusters, nIter, minPercentChange, init) {
+        var _a;
         if (nIter === void 0) { nIter = 100; }
         if (minPercentChange === void 0) { minPercentChange = 1; }
         if (init === void 0) { init = Initializer.KMeansPlusPlus; }
-        var _a = Mat.Dimensions(data[0]), nRows = _a[0], nCols = _a[1];
-        var means = [];
+        var _b = Mat.Dimensions(data[0]), nRows = _b[0], nCols = _b[1];
+        var uniqueClusters;
+        var clusterCentres;
         if (init == Initializer.random) {
-            means = Util.UniqueRandom(nClusters, data.length - 1).map(function (i) { return data[i]; });
+            clusterCentres = Util.UniqueRandom(nClusters, data.length - 1).map(function (i) { return data[i]; });
+            var interClusterDistances = clusterCentres.map(function (c) {
+                var diff = Mat.Sub(clusterCentres[0], c);
+                return Mat.NormSquare(diff);
+            });
+            var totalInterClusterDist = Util.Sum(interClusterDistances);
+            uniqueClusters = totalInterClusterDist > 0;
         }
         else {
-            means = kMeansPlusPlusInit(nClusters, data);
+            _a = kMeansPlusPlusInit(nClusters, data), uniqueClusters = _a[0], clusterCentres = _a[1];
         }
         var conv = new Conv.ConvergenceChecker(minPercentChange, nIter);
         var result;
-        var clusters = GroupToNearestMean(data, means);
+        var clusters = GroupToNearestMean(data, clusterCentres);
         do {
-            means = clusters.map(function (c) {
+            clusterCentres = clusters.map(function (c) {
                 var acc = Mat.CreateMatrix(nRows, nCols);
                 for (var i = 0; i < c.length; i++) {
                     Mat.AddInPlace(acc, c[i]);
                 }
                 return Mat.Scale(1 / c.length, acc);
             });
-            clusters = GroupToNearestMean(data, means);
-            result = new KMeansResult(clusters, means);
+            clusters = GroupToNearestMean(data, clusterCentres);
+            result = new KMeansResult(clusters, clusterCentres);
         } while (!conv.hasConverged(result.MeanDistanceToCluster()));
         console.log("KMeans exited at " + conv.getCurrentIter());
         return result;
@@ -1370,7 +1435,7 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
         function GMMCluster(_pi, _mean, _covariance) {
             this.pi = _pi;
             this.mean = _mean;
-            var epsilon = 1e-8;
+            var epsilon = 1e-7;
             if (Math.abs(Mat.Determinant(_covariance)) < epsilon) {
                 var dim = Mat.Rows(_covariance);
                 var epsMat = Mat.Scale(epsilon, Mat.Identity(dim));
@@ -1382,6 +1447,23 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
             this.dim = Math.max.apply(Math, Mat.Dimensions(_mean));
             var coeffDenominator = Math.sqrt(Math.pow(2 * Math.PI, this.dim) * Math.abs(this.covarianceDet));
             this.coeff = this.pi * (1 / coeffDenominator);
+            var scalars = [this.dim, this.pi, this.covarianceDet];
+            var anyScalarNaN = scalars.filter(function (s) { return isNaN(s); }).length > 0;
+            var matrices = [this.mean, this.covariance, this.covarianceInv];
+            var anyMatricesNaN = matrices.filter(function (m) { return Mat.Any(m, function (e) { return isNaN(e); }); }).length > 0;
+            if (anyScalarNaN || anyMatricesNaN) {
+                console.log({
+                    dim: this.dim,
+                    pi: this.pi,
+                    covarianceDet: this.covarianceDet
+                });
+                console.log({
+                    mean: this.mean,
+                    covariance: this.covariance,
+                    covarianceInv: this.covarianceInv
+                });
+                throw new Error("NaN in GMM cluster");
+            }
         }
         GMMCluster.prototype.Likelihood = function (observation) {
             var diff = Mat.Sub(observation, this.mean);
@@ -1389,6 +1471,7 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
             var exponentMat = Mat.Mul(Mat.Mul(diff_Transposed, this.covarianceInv), diff);
             var exponent = -0.5 * exponentMat[0][0];
             var result = this.coeff * Math.exp(exponent);
+            result = isFinite(result) ? result : Number.MAX_SAFE_INTEGER;
             return result;
         };
         return GMMCluster;
@@ -1416,20 +1499,48 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
     var GMM = (function () {
         function GMM() {
         }
-        GMM.PreclusteredDataToGMM = function (clusteredData) {
-            var gmm = new GMM();
-            var totalPoints = Util.Sum(clusteredData.map(function (c) { return c.length; }));
-            gmm.clusters = clusteredData.map(function (c) { return GMM.Points2GMMCluster(c, totalPoints); });
-            return gmm;
-        };
-        GMM.Points2GMMCluster = function (data, dataPointsInGMMSet) {
-            if (data.length == 0) {
-                throw new Error("GMM cluster cannot be empty");
+        GMM.prototype.Fit = function (rawData, nClusters, init, MAX_ITER, MIN_PERCENT_CHANGE) {
+            if (init === void 0) { init = Initializer.KMeansPlusPlus; }
+            if (MAX_ITER === void 0) { MAX_ITER = 20; }
+            if (MIN_PERCENT_CHANGE === void 0) { MIN_PERCENT_CHANGE = 1; }
+            if (!Mat.IsVector(rawData[0])) {
+                throw new Error("GMM.Fit: Error, data points need to be vectors (ideally column vectors)");
             }
-            var nData = data.length;
-            var weight = nData / dataPointsInGMMSet;
-            var params = Mat.MeanAndCovariance(data);
-            return new GMMCluster(weight, params.mean, params.covariance);
+            var data = rawData;
+            if (Mat.IsRowVector(rawData[0])) {
+                data = rawData.map(function (m) { return Mat.Transpose(m); });
+            }
+            console.log("GMM:Init Clusters");
+            var newClusters;
+            switch (init) {
+                case Initializer.random: {
+                    newClusters = this.RandomInit(data, nClusters);
+                    break;
+                }
+                case Initializer.KMeansPlusPlus: {
+                    var kMeansResult = KM.Fit(data, nClusters, 20, 1, KM.Initializer.KMeansPlusPlus);
+                    var nonEmptyClusters = kMeansResult.clusters.filter(function (c) { return c.length > 0; });
+                    newClusters = nonEmptyClusters.map(function (c) { return GMM.Points2GMMCluster(c, data.length); });
+                    break;
+                }
+            }
+            console.log("GMM:EM-start");
+            var conv = new Conv.ConvergenceChecker(MIN_PERCENT_CHANGE, MAX_ITER);
+            var logProb;
+            do {
+                newClusters = this.EM(data, newClusters);
+                logProb = GMM.LogLikelihood(data, newClusters);
+                console.log("Iteration:" + conv.getCurrentIter() + ", logProb:" + logProb);
+            } while (!conv.hasConverged(logProb));
+            this.clusters = newClusters;
+        };
+        GMM.prototype.Predict = function (rawData) {
+            var data = Mat.IsColumnVector(rawData) ? rawData : Mat.Transpose(rawData);
+            var predictions = new Array(this.clusters.length);
+            for (var i = 0; i < predictions.length; i++) {
+                predictions[i] = this.clusters[i].Likelihood(data);
+            }
+            return new GMMResult(predictions);
         };
         GMM.prototype.RandomInit = function (data, nClusters) {
             var nDim = Mat.Rows(data[0]);
@@ -1446,6 +1557,9 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
                         arr[i] = lowerThreshold;
                 }
             };
+            if (data.length == 0) {
+                throw new Error("Empty data set");
+            }
             var nDataPoints = data.length;
             var nDims = Mat.Rows(data[0]);
             var nClusters = initialClusters.length;
@@ -1482,6 +1596,9 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
                     var contribution = Mat.Scale(resp[c][d], data[d]);
                     Mat.AddInPlace(clusterSum[c], contribution);
                 }
+                if (Mat.Any(clusterSum[c], function (e) { return isNaN(e); })) {
+                    throw new Error("cluster sum NaN");
+                }
             }
             var means = clusterSum
                 .map(function (sum, index) { return Mat.Scale(1 / clusterResp[index], sum); });
@@ -1497,50 +1614,40 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
                 }
             }
             var covariances = covAcc.map(function (cov, ind) { return Mat.Scale(1 / clusterResp[ind], cov); });
-            console.log(clusterResp);
             return means.map(function (_, cIndex) {
                 return new GMMCluster(weights[cIndex], means[cIndex], covariances[cIndex]);
             });
         };
-        GMM.prototype.Fit = function (rawData, nClusters, init, MAX_ITER, MIN_PERCENT_CHANGE) {
-            if (init === void 0) { init = Initializer.KMeansPlusPlus; }
-            if (MAX_ITER === void 0) { MAX_ITER = 20; }
-            if (MIN_PERCENT_CHANGE === void 0) { MIN_PERCENT_CHANGE = 1; }
-            if (!Mat.IsVector(rawData[0])) {
-                throw new Error("GMM.Fit: Error, data points need to be vectors (ideally column vectors)");
-            }
-            var data = rawData;
-            if (Mat.IsRowVector(rawData[0])) {
-                data = rawData.map(function (m) { return Mat.Transpose(m); });
-            }
-            var newClusters;
-            switch (init) {
-                case Initializer.random: {
-                    newClusters = this.RandomInit(data, nClusters);
-                    break;
-                }
-                case Initializer.KMeansPlusPlus: {
-                    var kMeansResult = KM.Fit(data, nClusters, 20, 1, KM.Initializer.KMeansPlusPlus);
-                    newClusters = kMeansResult.clusters.map(function (c) { return GMM.Points2GMMCluster(c, data.length); });
-                    break;
-                }
-            }
-            var conv = new Conv.ConvergenceChecker(MIN_PERCENT_CHANGE, MAX_ITER);
-            var logProb;
-            do {
-                newClusters = this.EM(data, newClusters);
-                logProb = GMM.LogLikelihood(data, newClusters);
-                console.log("Iteration:" + conv.getCurrentIter() + ", logProb:" + logProb);
-            } while (!conv.hasConverged(logProb));
-            this.clusters = newClusters;
+        GMM.labelledDataToGMMs = function (fgLabels, fgGroupSize, bgLabels, bgGroupSize, labels, data) {
+            var fgGMM = new GMM();
+            var bgGMM = new GMM();
+            var createCluster = function (_tags, _groupSizes) {
+                var totalPoints = Util.Sum(_groupSizes);
+                return _tags.map(function (t, ind) {
+                    var groupSize = _groupSizes[ind];
+                    var pi = groupSize / totalPoints;
+                    var params = Mat.MeanAndCovarianceFromLabelledData(t, labels, data);
+                    return new GMMCluster(pi, params.mean, params.covariance);
+                });
+            };
+            fgGMM.clusters = createCluster(fgLabels, fgGroupSize);
+            bgGMM.clusters = createCluster(bgLabels, bgGroupSize);
+            return [fgGMM, bgGMM];
         };
-        GMM.prototype.Predict = function (rawData) {
-            var data = Mat.IsColumnVector(rawData) ? rawData : Mat.Transpose(rawData);
-            var predictions = new Array(this.clusters.length);
-            for (var i = 0; i < predictions.length; i++) {
-                predictions[i] = this.clusters[i].Likelihood(data);
+        GMM.PreclusteredDataToGMM = function (clusteredData) {
+            var gmm = new GMM();
+            var totalPoints = Util.Sum(clusteredData.map(function (c) { return c.length; }));
+            gmm.clusters = clusteredData.map(function (c) { return GMM.Points2GMMCluster(c, totalPoints); });
+            return gmm;
+        };
+        GMM.Points2GMMCluster = function (data, dataPointsInGMMSet) {
+            if (data.length == 0) {
+                throw new Error("GMM cluster cannot be empty");
             }
-            return new GMMResult(predictions);
+            var nData = data.length;
+            var weight = nData / dataPointsInGMMSet;
+            var params = Mat.MeanAndCovariance(data);
+            return new GMMCluster(weight, params.mean, params.covariance);
         };
         GMM.LogLikelihood = function (data, gmm) {
             var logProb = 0;
@@ -1577,6 +1684,14 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             var nPixels = this.width * this.height;
             this.matte = new Uint8Array(nPixels);
             this.trimap = new Uint8Array(nPixels);
+            var flattenedImg = new Array(this.height * this.width);
+            for (var r = 0; r < this.height; r++) {
+                for (var c = 0; c < this.width; c++) {
+                    var linearInd = GrabCut.GetArrayIndex(r, c, this.width);
+                    flattenedImg[linearInd] = image[r][c];
+                }
+            }
+            this.flattenedImg = flattenedImg;
         }
         GrabCut.prototype.SetTrimap = function (trimap, width, height) {
             for (var r = 0; r < height; r++) {
@@ -1601,29 +1716,55 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             var _a;
             var flowNetwork = new BK.BKNetwork();
             var maxFlowSolver = BK.BKMaxflow;
+            console.time("Grabcut-GM");
             var _b = GrabCut.GeneratePixel2PixelGraph(this.img, flowNetwork), network = _b[0], maxCapacity = _b[1];
             var _c = GrabCut.InitSourceAndSink(network, this.width, this.height), srcNode = _c[0], sinkNode = _c[1];
+            console.timeEnd("Grabcut-GM");
             var conv = new Conv.ConvergenceChecker(tolerancePercent, nIter);
             var energy;
+            var labels = Util.Fill(this.width * this.height, 0);
+            console.time("Grabcut-Graph Cut");
             do {
                 console.log("iter:" + conv.getCurrentIter());
-                var _d = GrabCut.SegregatePixels(this.img, this.matte, 0, 0, this.height, this.width), fgPixels = _d[0], bgPixels = _d[1];
-                var _e = GrabCut.BinPixels(this.fgGMM, this.bgGMM, bgPixels, fgPixels), fgClusters = _e[0], bgClusters = _e[1];
-                _a = [fgClusters, bgClusters].map(function (mixture) {
-                    var nonEmptyClusters = mixture.filter(function (cluster) { return cluster.length > 0; });
-                    return GMM.GMM.PreclusteredDataToGMM(nonEmptyClusters);
-                }), this.fgGMM = _a[0], this.bgGMM = _a[1];
+                console.time("Grabcut-Graph init");
+                var filterEmptyGroups = function (indices, groupSize) {
+                    var validIndices = [];
+                    var nonEmptyGroups = [];
+                    for (var i = 0; i < indices.length; i++) {
+                        if (groupSize[i] > 0) {
+                            validIndices.push(indices[i]);
+                            nonEmptyGroups.push(groupSize[i]);
+                        }
+                    }
+                    return [validIndices, nonEmptyGroups];
+                };
+                console.time("Graphcut-Graph GMM-recomputation");
+                var _d = GrabCut.LabelPixels(this.matte, this.height, this.width, this.fgGMM, this.bgGMM, this.img, labels), fgInd = _d[0], fgGroupSizes = _d[1], bgInd = _d[2], bgGroupSizes = _d[3];
+                var _e = filterEmptyGroups(fgInd, fgGroupSizes), validFgInd = _e[0], validFgGroupSizes = _e[1];
+                var _f = filterEmptyGroups(bgInd, bgGroupSizes), validBgInd = _f[0], validBgGroupSizes = _f[1];
+                _a = GMM.GMM.labelledDataToGMMs(validFgInd, validFgGroupSizes, validBgInd, validBgGroupSizes, labels, this.flattenedImg), this.fgGMM = _a[0], this.bgGMM = _a[1];
+                console.timeEnd("Graphcut-Graph GMM-recomputation");
                 console.log("fg clusters:" + this.fgGMM.clusters.length + ", bg clusters:" + this.bgGMM.clusters.length);
+                console.time("Grabcut-Graph source sink update");
                 GrabCut.UpdateSourceAndSink(network, maxCapacity, this.fgGMM, this.bgGMM, this.img, this.trimap, srcNode, sinkNode);
+                console.timeEnd("Grabcut-Graph source sink update");
+                console.time("Grabcut-Graph flow reset");
                 network.ResetFlow();
+                console.timeEnd("Grabcut-Graph flow reset");
+                console.timeEnd("Grabcut-Graph init");
+                console.time("Grabcut-Graph maxflow");
                 console.log('max flow');
                 var flowResult = maxFlowSolver(srcNode, sinkNode, network);
+                console.timeEnd("Grabcut-Graph maxflow");
+                console.time("Grabcut-Graph cut");
                 console.log('cut');
                 var fgPixelIndices = flowResult.GetSourcePartition();
                 GrabCut.UpdateMatte(this.matte, this.trimap, fgPixelIndices);
                 energy = flowResult.GetMaxFlow();
+                console.timeEnd("Grabcut-Graph cut");
                 console.log("Energy: " + energy);
             } while (!conv.hasConverged(energy));
+            console.timeEnd("Grabcut-Graph Cut");
         };
         GrabCut.prototype.GetAlphaMask = function () {
             var alpha = Mat.CreateMatrix(this.height, this.width);
@@ -1661,10 +1802,50 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             }
             return [fgPixels, bgPixels];
         };
+        GrabCut.LabelPixels = function (matte, height, width, fgGMM, bgGMM, img, labels) {
+            var nFGClusters = fgGMM.clusters.length;
+            var nBGClusters = bgGMM.clusters.length;
+            var fgGroupSizes = Util.Fill(nFGClusters, 0);
+            var bgGroupSizes = Util.Fill(nBGClusters, 0);
+            var maxIndex = function (arr) {
+                var max = -Number.MAX_SAFE_INTEGER;
+                var maxInd = 0;
+                for (var i = 0; i < arr.length; i++) {
+                    var current = arr[i];
+                    if (current > max) {
+                        maxInd = i;
+                        max = current;
+                    }
+                }
+                return maxInd;
+            };
+            for (var r = 0; r < height; r++) {
+                for (var c = 0; c < width; c++) {
+                    var linearIndex = GrabCut.GetArrayIndex(r, c, width);
+                    var pixelIsFG = matte[linearIndex] == Trimap.Foreground;
+                    var currentPixel = img[r][c];
+                    if (pixelIsFG) {
+                        var likelihoods = fgGMM.Predict(currentPixel).likelihoods;
+                        var fgGroup = maxIndex(likelihoods);
+                        fgGroupSizes[fgGroup]++;
+                        labels[linearIndex] = 0 + fgGroup;
+                    }
+                    else {
+                        var likelihoods = bgGMM.Predict(currentPixel).likelihoods;
+                        var bgGroup = maxIndex(likelihoods);
+                        bgGroupSizes[bgGroup]++;
+                        labels[linearIndex] = nFGClusters + bgGroup;
+                    }
+                }
+            }
+            var fgIndices = Util.Range(0, nFGClusters);
+            var bgIndices = Util.Range(nFGClusters, nFGClusters + nBGClusters);
+            return [fgIndices, fgGroupSizes, bgIndices, bgGroupSizes];
+        };
         GrabCut.BinPixels = function (fgGMM, bgGMM, bgPixels, fgPixels) {
             var maxIndex = function (arr) {
                 var max = Number.MIN_SAFE_INTEGER;
-                var maxInd = -1;
+                var maxInd = 0;
                 for (var i = 0; i < arr.length; i++) {
                     var current = arr[i];
                     if (current > max) {
@@ -1680,10 +1861,6 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
                 var pixel = bgPixels[i];
                 var prob = bgGMM.Predict(pixel).likelihoods;
                 var bin = maxIndex(prob);
-                if (bin < 0) {
-                    console.log(prob);
-                    throw new Error("pixel bin cannot be found");
-                }
                 bg[bin].push(pixel);
             }
             for (var i = 0; i < fgPixels.length; i++) {
@@ -1705,7 +1882,6 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             }
             var neighbours = [[0, -1], [-1, 0], [0, 1], [1, 0]];
             var coeff = neighbours.map(function (t) { return 50 / Math.sqrt(Math.pow(t[0], 2) + Math.pow(t[1], 2)); });
-            var maxCap = Number.MIN_SAFE_INTEGER;
             var GetNeighbour = function (r, c, neighbourInd) {
                 var offset = neighbours[neighbourInd];
                 var nR = r + offset[0];
@@ -1730,6 +1906,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
                 }
             }
             var beta = 0.5 / (diffAcc / nCount);
+            var maxCap = -Number.MAX_SAFE_INTEGER;
             for (var r = 0; r < height; r++) {
                 for (var c = 0; c < width; c++) {
                     var nodeIndex = GrabCut.GetArrayIndex(r, c, width);
@@ -1754,6 +1931,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
                     }
                 }
             }
+            console.log("Pixel to pixel maximum capacity:" + maxCap);
             return [network, maxCap];
         };
         GrabCut.InitSourceAndSink = function (network, width, height) {
@@ -1967,7 +2145,6 @@ define("WebPage/FileInput", ["require", "exports"], function (require, exports) 
             return this.data;
         };
         FileInput.prototype.RegisterImageLoad = function (callback) {
-            console.log(callback);
             this.listeners.push(callback);
         };
         return FileInput;
@@ -2950,7 +3127,7 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPag
             canvas.addEventListener("contextmenu", function (e) { return e.preventDefault(); });
             document.addEventListener("keydown", this.Undo.bind(this));
             cropBtn.addEventListener("click", this.triggerGrabCut.bind(this));
-            canvas.addEventListener("wheel", this.mouseScroll.bind(this));
+            canvas.addEventListener("wheel", this.mouseScroll.bind(this), { passive: true });
         }
         Controller.prototype.AttachView = function (canvasView) {
             this.canvasView = canvasView;
@@ -3097,8 +3274,6 @@ define("WebPage/PageMain", ["require", "exports", "WebPage/FileInput", "WebPage/
     model.AttachPreviewView(previewView);
     controller.AttachModel(model);
     controller.AttachView(view);
-    console.log("Main loaded");
-    console.log("PageMain loaded");
 });
 var ErrorType;
 (function (ErrorType) {

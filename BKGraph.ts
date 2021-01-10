@@ -51,6 +51,7 @@ export class BKNetwork implements FlowBase.IFlowNetwork {
 
     CreateEdge(source: number, dest: number, capacity: number): number{
         if(isNaN(capacity)) throw new Error("capacity cannot be NaN");
+        if(!isFinite(capacity)) throw new Error("Infinite capacity");
         
         let edgeInd = this.edges.length;
         let edge = new BKEdge(source, dest, capacity, edgeInd);

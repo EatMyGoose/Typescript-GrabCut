@@ -36,7 +36,3 @@ model.AttachPreviewView(previewView);
 
 controller.AttachModel(model);
 controller.AttachView(view);
-
-console.log("Main loaded");
-
-console.log("PageMain loaded");

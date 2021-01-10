@@ -25,6 +25,7 @@ export class GrabCut {
     private height: number;
     private width: number;
     private img: Mat.Matrix[][]; //Matrices -> [R,G,B] Each element ranges from 0-255
+    private flattenedImg: Mat.Matrix[]; //Try to migrate to only using flattened arrays
     private trimap: Uint8Array;
     private matte: Uint8Array;
 
@@ -38,6 +39,15 @@ export class GrabCut {
         let nPixels = this.width * this.height;
         this.matte = new Uint8Array(nPixels);
         this.trimap = new Uint8Array(nPixels);
+
+        let flattenedImg = new Array(this.height * this.width);
+        for(let r = 0; r < this.height; r++){
+            for(let c = 0; c < this.width; c++){
+                let linearInd = GrabCut.GetArrayIndex(r,c, this.width);
+                flattenedImg[linearInd] = image[r][c];
+            }
+        }
+        this.flattenedImg = flattenedImg;
     }
 
     SetTrimap(trimap: Trimap[][], width: number, height: number): void {
@@ -72,42 +82,90 @@ export class GrabCut {
         let flowNetwork: FlowBase.IFlowNetwork = new BK.BKNetwork();//new Dinic.DinicNetwork();;
         let maxFlowSolver: FlowBase.IMaxFlowSolver = BK.BKMaxflow;//Dinic.DinicSolver;//;
 
+        console.time("Grabcut-GM");
         let [network, maxCapacity] = GrabCut.GeneratePixel2PixelGraph(this.img, flowNetwork);
         let [srcNode, sinkNode] = GrabCut.InitSourceAndSink(network, this.width, this.height);
+        console.timeEnd("Grabcut-GM");
 
         let conv = new Conv.ConvergenceChecker(tolerancePercent, nIter);
         let energy: number;
 
+        let labels = Util.Fill<number>(this.width * this.height, 0);
+
+        console.time("Grabcut-Graph Cut");
         do {
             console.log(`iter:${conv.getCurrentIter()}`);
 
+            console.time("Grabcut-Graph init");
+
+            // #region "old gmm reclustering"
             //Update GMMs from previous graphcut result
             //Using the result from the previous graph cut, reclassify pixels as either BG or FG
+            /*
+            console.time("Grabcut-Graph Seg Pixels");
             let [fgPixels, bgPixels] = GrabCut.SegregatePixels(this.img, this.matte, 0, 0, this.height, this.width);
+            console.timeEnd("Grabcut-Graph Seg Pixels");
 
             //Within the BG and FG pixel sets, group them to the most similar GMM cluster
+            console.time("Grabcut-Graph Bin Pixels");
             let [fgClusters, bgClusters] = GrabCut.BinPixels(this.fgGMM, this.bgGMM, bgPixels, fgPixels);
+            console.timeEnd("Grabcut-Graph Bin Pixels");
 
             //Generate new GMMs based on the reclustered data.
+            console.time("Grabcut-Graph new GMM");
             [this.fgGMM, this.bgGMM] = [fgClusters, bgClusters].map(mixture => {
                 let nonEmptyClusters = mixture.filter(cluster => cluster.length > 0);
                 return GMM.GMM.PreclusteredDataToGMM(nonEmptyClusters);
             });
+            console.timeEnd("Grabcut-Graph new GMM");
+            */
+           //#endregion "old gmm reclustering"
+
+            let filterEmptyGroups = (indices:number[], groupSize:number[]) => {
+                let validIndices = [];
+                let nonEmptyGroups = [];
+                for(let i = 0; i < indices.length; i++){
+                    if(groupSize[i] > 0){
+                        validIndices.push(indices[i]);
+                        nonEmptyGroups.push(groupSize[i]);
+                    }
+                }
+                return [validIndices, nonEmptyGroups];
+            };
+
+            console.time("Graphcut-Graph GMM-recomputation");
+            let [fgInd, fgGroupSizes, bgInd, bgGroupSizes] = GrabCut.LabelPixels(this.matte, this.height, this.width, this.fgGMM, this.bgGMM, this.img, labels);
+            let [validFgInd, validFgGroupSizes] = filterEmptyGroups(fgInd, fgGroupSizes);
+            let [validBgInd, validBgGroupSizes] = filterEmptyGroups(bgInd, bgGroupSizes);
+            [this.fgGMM, this.bgGMM] = GMM.GMM.labelledDataToGMMs(validFgInd, validFgGroupSizes, validBgInd, validBgGroupSizes, labels, this.flattenedImg);
+            console.timeEnd("Graphcut-Graph GMM-recomputation");
+
             console.log(`fg clusters:${this.fgGMM.clusters.length}, bg clusters:${this.bgGMM.clusters.length}`);
 
+            console.time("Grabcut-Graph source sink update");
             GrabCut.UpdateSourceAndSink(network, maxCapacity, this.fgGMM, this.bgGMM, this.img, this.trimap, srcNode, sinkNode);
+            console.timeEnd("Grabcut-Graph source sink update");
+            console.time("Grabcut-Graph flow reset");
             network.ResetFlow();
+            console.timeEnd("Grabcut-Graph flow reset");
 
+            console.timeEnd("Grabcut-Graph init");
+
+            console.time("Grabcut-Graph maxflow");
             console.log('max flow');
             let flowResult = maxFlowSolver(srcNode, sinkNode, network);
+            console.timeEnd("Grabcut-Graph maxflow");
 
+            console.time("Grabcut-Graph cut");
             console.log('cut');
             let fgPixelIndices = flowResult.GetSourcePartition();
             GrabCut.UpdateMatte(this.matte, this.trimap, fgPixelIndices);
 
             energy = flowResult.GetMaxFlow();
+            console.timeEnd("Grabcut-Graph cut");
             console.log(`Energy: ${energy}`);
         } while (!conv.hasConverged(energy))
+        console.timeEnd("Grabcut-Graph Cut");
         //Done    
         //Alpha mask is now stored in the matte array.
     }
@@ -156,6 +214,58 @@ export class GrabCut {
         return [fgPixels, bgPixels];
     }
 
+    //private static SegregatePixels(img: Mat.Matrix[][], matte: Uint8Array, top: number, left: number, height: number, width: number): [Mat.Matrix[], Mat.Matrix[]] {
+    //Returns the FG and BG group sizes
+    private static LabelPixels(
+        matte: Uint8Array, height: number, width: number,
+        fgGMM: GMM.GMM, bgGMM: GMM.GMM, img: Mat.Matrix[][],
+        labels: number[]): [number[], number[], number[], number[]] {
+
+        let nFGClusters = fgGMM.clusters.length;
+        let nBGClusters = bgGMM.clusters.length
+
+        let fgGroupSizes = Util.Fill<number>(nFGClusters, 0);
+        let bgGroupSizes = Util.Fill<number>(nBGClusters, 0);
+
+        let maxIndex = function (arr: number[]): number {
+            let max = -Number.MAX_SAFE_INTEGER;
+            let maxInd = 0;
+            for (let i = 0; i < arr.length; i++) {
+                let current = arr[i];
+                if (current > max) {
+                    maxInd = i;
+                    max = current;
+                }
+            }
+            return maxInd;
+        }
+
+        //Assign labels to each pixel
+        for (let r = 0; r < height; r++) {
+            for (let c = 0; c < width; c++) {
+                let linearIndex = GrabCut.GetArrayIndex(r, c, width);
+                let pixelIsFG = matte[linearIndex] == Trimap.Foreground;
+                let currentPixel = img[r][c];
+
+                if (pixelIsFG) {
+                    let likelihoods = fgGMM.Predict(currentPixel).likelihoods;
+                    let fgGroup = maxIndex(likelihoods);
+                    fgGroupSizes[fgGroup]++;
+                    labels[linearIndex] = 0 + fgGroup;
+                } else { //Bg 
+                    let likelihoods = bgGMM.Predict(currentPixel).likelihoods;
+                    let bgGroup = maxIndex(likelihoods);
+                    bgGroupSizes[bgGroup]++;
+                    labels[linearIndex] = nFGClusters + bgGroup;
+                }
+            }
+        }
+        let fgIndices = Util.Range(0, nFGClusters);
+        let bgIndices = Util.Range(nFGClusters, nFGClusters + nBGClusters);
+
+        return [fgIndices, fgGroupSizes, bgIndices, bgGroupSizes];
+    }
+
     //Returns the [FG,BG] pixel clusters
     private static BinPixels(
         fgGMM: GMM.GMM, bgGMM: GMM.GMM,
@@ -163,7 +273,7 @@ export class GrabCut {
 
         let maxIndex = function (arr: number[]): number {
             let max = Number.MIN_SAFE_INTEGER;
-            let maxInd = -1;
+            let maxInd = 0;
             for (let i = 0; i < arr.length; i++) {
                 let current = arr[i];
                 if (current > max) {
@@ -181,11 +291,13 @@ export class GrabCut {
             let pixel = bgPixels[i];
             let prob = bgGMM.Predict(pixel).likelihoods;
             let bin = maxIndex(prob);
-            if (bin < 0) {
-                console.log(prob);
-                throw new Error("pixel bin cannot be found");
-            }
             bg[bin].push(pixel);
+            /*
+           if (bin < 0) {
+               console.log(prob);
+               throw new Error("pixel bin cannot be found");
+           }
+           */
         }
 
         for (let i = 0; i < fgPixels.length; i++) {
@@ -218,8 +330,6 @@ export class GrabCut {
         let neighbours = [[0, -1], [-1, 0], [0, 1], [1, 0]];
         let coeff = neighbours.map(t => 50 / Math.sqrt(t[0] ** 2 + t[1] ** 2));
 
-        let maxCap = Number.MIN_SAFE_INTEGER;
-
         let GetNeighbour = (r: number, c: number, neighbourInd: number): [boolean, number, number] => {
             let offset = neighbours[neighbourInd];
             let nR = r + offset[0];
@@ -228,7 +338,6 @@ export class GrabCut {
             return [validNeighbour, nR, nC];
         };
 
-        //--new--
         //Find beta (the mean difference between a pixel and its neighbours)
         let nCount = 0;
         let diffAcc = 0;
@@ -249,6 +358,7 @@ export class GrabCut {
         }
 
         let beta = 0.5 / (diffAcc / nCount);
+        let maxCap = -Number.MAX_SAFE_INTEGER;
 
         //Set pixel to pixel edge capacities
         for (let r = 0; r < height; r++) {
@@ -282,6 +392,7 @@ export class GrabCut {
             }
         }
 
+        console.log(`Pixel to pixel maximum capacity:${maxCap}`);
         return [network, maxCap];
     }
 

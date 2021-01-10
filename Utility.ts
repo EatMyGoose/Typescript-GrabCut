@@ -8,7 +8,17 @@ export function Clamp(val:number, upper:number, lower:number){
 
 export function PerfectlyDivisible(val:number, divisor:number):boolean{
     let div = val / divisor;
-    return Math.floor(val) == val;
+    return Math.floor(div) == div;
+}
+
+export function Range(lowerInclusive:number, upperExclusive:number){
+    let nElem = upperExclusive - lowerInclusive;
+    let arr = new Array(nElem);
+    let ind = 0;
+    for(let val = lowerInclusive; val < upperExclusive; val += 1){
+        arr[ind++] = val;
+    }
+    return arr;
 }
 
 export function Fill<T>(length: number, value: T): T[] {
