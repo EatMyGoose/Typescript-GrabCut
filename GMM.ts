@@ -2,7 +2,9 @@ import * as Util from "./Utility";
 import * as Mat from "./Matrix";
 import * as KM from "./KMeans";
 import * as Conv from "./ConvergenceChecker";
+import * as C from "./GMMCluster";
 
+/*
 export class GMMCluster {
     readonly dim: number;
     readonly pi: number; //weight;
@@ -72,6 +74,7 @@ export class GMMCluster {
         return result;
     }
 }
+*/
 
 export enum Initializer {
     random,
@@ -97,7 +100,8 @@ export class GMMResult {
 }
 
 export class GMM {
-    clusters: GMMCluster[];
+    //clusters: GMMCluster[];
+    clusters: C.ICluster[];
 
     //TODO: remove parameters for constructor (Fit can calculate all of the relevant params)
     constructor() {
@@ -118,7 +122,7 @@ export class GMM {
 
         console.log("GMM:Init Clusters");
         //Init Clusters
-        let newClusters: GMMCluster[];
+        let newClusters: C.ICluster[];
         switch (init) {
             case Initializer.random: {
                 newClusters = this.RandomInit(data, nClusters);
@@ -154,17 +158,17 @@ export class GMM {
         return new GMMResult(predictions);
     }
 
-    private RandomInit(data: Mat.Matrix[], nClusters: number): GMMCluster[] {
+    private RandomInit(data: Mat.Matrix[], nClusters: number): C.ICluster[] {
         let nDim = Mat.Rows(data[0]);
         let selectedIndices = Util.UniqueRandom(nClusters, data.length - 1);
         let equalWeightage = 1 / nClusters;
         return selectedIndices.map(i => {
-            return new GMMCluster(equalWeightage, data[i], Mat.Identity(nDim));
+            return C.ClusterFactory(equalWeightage, data[i], Mat.Identity(nDim));
         });
     }
 
     //data: column vectors of each observation
-    private EM(data: Mat.Matrix[], initialClusters: GMMCluster[]): GMMCluster[] {
+    private EM(data: Mat.Matrix[], initialClusters: C.ICluster[]): C.ICluster[] {
 
         let ReplaceZeroes = (arr: number[], lowerThreshold: number): void => {
             for (let i = 0; i < arr.length; i++) {
@@ -261,7 +265,7 @@ export class GMM {
 
         //Return new GMM cluster hyperparameters
         return means.map((_, cIndex) => {
-            return new GMMCluster(weights[cIndex], means[cIndex], covariances[cIndex]);
+            return C.ClusterFactory(weights[cIndex], means[cIndex], covariances[cIndex]);
         });
     }
 
@@ -280,7 +284,7 @@ export class GMM {
                 let groupSize = _groupSizes[ind];
                 let pi = groupSize / totalPoints;
                 let params = Mat.MeanAndCovarianceFromLabelledData(t, labels, data);
-                return new GMMCluster(pi, params.mean, params.covariance);
+                return C.ClusterFactory(pi, params.mean, params.covariance);
             });
         }
 
@@ -298,18 +302,18 @@ export class GMM {
     }
 
     //Helper function for calculating initial GMMs
-    private static Points2GMMCluster(data: Mat.Matrix[], dataPointsInGMMSet: number): GMMCluster {
+    private static Points2GMMCluster(data: Mat.Matrix[], dataPointsInGMMSet: number): C.ICluster {
         if (data.length == 0) {
             throw new Error("GMM cluster cannot be empty");
         }
         let nData = data.length;
         let weight = nData / dataPointsInGMMSet;
         let params = Mat.MeanAndCovariance(data);
-        return new GMMCluster(weight, params.mean, params.covariance);
+        return C.ClusterFactory(weight, params.mean, params.covariance);
     }
 
     //data: column vectors of each observation
-    static LogLikelihood(data: Mat.Matrix[], gmm: GMMCluster[]): number {
+    static LogLikelihood(data: Mat.Matrix[], gmm: C.ICluster[]): number {
         let logProb = 0;
         for (let d = 0; d < data.length; d++) {
             let acc = 0;

@@ -1427,30 +1427,30 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections", "Con
         return clusters;
     }
 });
-define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "ConvergenceChecker"], function (require, exports, Util, Mat, KM, Conv) {
+define("GMMCluster", ["require", "exports", "Matrix"], function (require, exports, M) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.GMM = exports.GMMResult = exports.Initializer = exports.GMMCluster = void 0;
-    var GMMCluster = (function () {
-        function GMMCluster(_pi, _mean, _covariance) {
+    exports.V3Cluster = exports.ClusterFactory = exports.Cluster = void 0;
+    var Params = (function () {
+        function Params(_pi, _mean, _covariance) {
             this.pi = _pi;
             this.mean = _mean;
             var epsilon = 1e-7;
-            if (Math.abs(Mat.Determinant(_covariance)) < epsilon) {
-                var dim = Mat.Rows(_covariance);
-                var epsMat = Mat.Scale(epsilon, Mat.Identity(dim));
-                _covariance = Mat.Add(_covariance, epsMat);
+            if (Math.abs(M.Determinant(_covariance)) < epsilon) {
+                var dim = M.Rows(_covariance);
+                var epsMat = M.Scale(epsilon, M.Identity(dim));
+                _covariance = M.Add(_covariance, epsMat);
             }
             this.covariance = _covariance;
-            this.covarianceDet = Mat.Determinant(_covariance);
-            this.covarianceInv = Mat.Inverse(_covariance);
-            this.dim = Math.max.apply(Math, Mat.Dimensions(_mean));
+            this.covarianceDet = M.Determinant(_covariance);
+            this.covarianceInv = M.Inverse(_covariance);
+            this.dim = Math.max.apply(Math, M.Dimensions(_mean));
             var coeffDenominator = Math.sqrt(Math.pow(2 * Math.PI, this.dim) * Math.abs(this.covarianceDet));
             this.coeff = this.pi * (1 / coeffDenominator);
             var scalars = [this.dim, this.pi, this.covarianceDet];
             var anyScalarNaN = scalars.filter(function (s) { return isNaN(s); }).length > 0;
             var matrices = [this.mean, this.covariance, this.covarianceInv];
-            var anyMatricesNaN = matrices.filter(function (m) { return Mat.Any(m, function (e) { return isNaN(e); }); }).length > 0;
+            var anyMatricesNaN = matrices.filter(function (m) { return M.Any(m, function (e) { return isNaN(e); }); }).length > 0;
             if (anyScalarNaN || anyMatricesNaN) {
                 console.log({
                     dim: this.dim,
@@ -1465,18 +1465,61 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
                 throw new Error("NaN in GMM cluster");
             }
         }
-        GMMCluster.prototype.Likelihood = function (observation) {
-            var diff = Mat.Sub(observation, this.mean);
-            var diff_Transposed = Mat.Transpose(diff);
-            var exponentMat = Mat.Mul(Mat.Mul(diff_Transposed, this.covarianceInv), diff);
+        return Params;
+    }());
+    var Cluster = (function () {
+        function Cluster(_pi, _mean, _covariance) {
+            this.params = new Params(_pi, _mean, _covariance);
+        }
+        Cluster.prototype.Likelihood = function (observation) {
+            var diff = M.Sub(observation, this.params.mean);
+            var diff_Transposed = M.Transpose(diff);
+            var exponentMat = M.Mul(M.Mul(diff_Transposed, this.params.covarianceInv), diff);
             var exponent = -0.5 * exponentMat[0][0];
-            var result = this.coeff * Math.exp(exponent);
+            var result = this.params.coeff * Math.exp(exponent);
             result = isFinite(result) ? result : Number.MAX_SAFE_INTEGER;
             return result;
         };
-        return GMMCluster;
+        return Cluster;
     }());
-    exports.GMMCluster = GMMCluster;
+    exports.Cluster = Cluster;
+    function ClusterFactory(_pi, _mean, _covariance) {
+        var dim = Math.max.apply(Math, M.Dimensions(_mean));
+        if (dim == 3) {
+            return new V3Cluster(_pi, _mean, _covariance);
+        }
+        else {
+            return new Cluster(_pi, _mean, _covariance);
+        }
+    }
+    exports.ClusterFactory = ClusterFactory;
+    var V3Cluster = (function () {
+        function V3Cluster(_pi, _mean, _covariance) {
+            this.params = new Params(_pi, _mean, _covariance);
+        }
+        V3Cluster.prototype.Likelihood = function (observation) {
+            var diff = M.Sub(observation, this.params.mean);
+            var diff_Transposed = M.Transpose(diff);
+            var exponentMat = Mul_h3_3by3_v3(diff_Transposed, this.params.covarianceInv, diff);
+            var exponent = -0.5 * exponentMat;
+            var result = this.params.coeff * Math.exp(exponent);
+            result = isFinite(result) ? result : Number.MAX_SAFE_INTEGER;
+            return result;
+        };
+        return V3Cluster;
+    }());
+    exports.V3Cluster = V3Cluster;
+    function Mul_h3_3by3_v3(h3, _3by3, v3) {
+        var c0 = h3[0][0] * _3by3[0][0] + h3[0][1] * _3by3[1][0] + h3[0][2] * _3by3[2][0];
+        var c1 = h3[0][0] * _3by3[0][1] + h3[0][1] * _3by3[1][1] + h3[0][2] * _3by3[2][1];
+        var c2 = h3[0][0] * _3by3[0][2] + h3[0][1] * _3by3[1][2] + h3[0][2] * _3by3[2][2];
+        return c0 * v3[0][0] + c1 * v3[1][0] + c2 * v3[2][0];
+    }
+});
+define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "ConvergenceChecker", "GMMCluster"], function (require, exports, Util, Mat, KM, Conv, C) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.GMM = exports.GMMResult = exports.Initializer = void 0;
     var Initializer;
     (function (Initializer) {
         Initializer[Initializer["random"] = 0] = "random";
@@ -1547,7 +1590,7 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
             var selectedIndices = Util.UniqueRandom(nClusters, data.length - 1);
             var equalWeightage = 1 / nClusters;
             return selectedIndices.map(function (i) {
-                return new GMMCluster(equalWeightage, data[i], Mat.Identity(nDim));
+                return C.ClusterFactory(equalWeightage, data[i], Mat.Identity(nDim));
             });
         };
         GMM.prototype.EM = function (data, initialClusters) {
@@ -1615,7 +1658,7 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
             }
             var covariances = covAcc.map(function (cov, ind) { return Mat.Scale(1 / clusterResp[ind], cov); });
             return means.map(function (_, cIndex) {
-                return new GMMCluster(weights[cIndex], means[cIndex], covariances[cIndex]);
+                return C.ClusterFactory(weights[cIndex], means[cIndex], covariances[cIndex]);
             });
         };
         GMM.labelledDataToGMMs = function (fgLabels, fgGroupSize, bgLabels, bgGroupSize, labels, data) {
@@ -1627,7 +1670,7 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
                     var groupSize = _groupSizes[ind];
                     var pi = groupSize / totalPoints;
                     var params = Mat.MeanAndCovarianceFromLabelledData(t, labels, data);
-                    return new GMMCluster(pi, params.mean, params.covariance);
+                    return C.ClusterFactory(pi, params.mean, params.covariance);
                 });
             };
             fgGMM.clusters = createCluster(fgLabels, fgGroupSize);
@@ -1647,7 +1690,7 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
             var nData = data.length;
             var weight = nData / dataPointsInGMMSet;
             var params = Mat.MeanAndCovariance(data);
-            return new GMMCluster(weight, params.mean, params.covariance);
+            return C.ClusterFactory(weight, params.mean, params.covariance);
         };
         GMM.LogLikelihood = function (data, gmm) {
             var logProb = 0;
