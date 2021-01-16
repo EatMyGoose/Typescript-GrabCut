@@ -4,7 +4,7 @@ Implementation of GrabCut written from scratch in Typescript. Should run within 
 </p>
 
 <p>
-Try it out <a href="https://eatmygoose.github.io/Typescript-GrabCut/index.html">here</a>
+Try it out <strong><a href="https://eatmygoose.github.io/Typescript-GrabCut/index.html">here</a></strong>
 </p>
 
 <p>
@@ -17,6 +17,7 @@ These 2 bundles of information are translated into flow capacities in a flow net
 
 <img src="Images/Demo_Rafflesia.png"></img>
 <img src="Images/Demo_Goose.png"></img>
+<img src="Images/Demo_Beagle_2.png"></img>
 <p>
   <img src="Images/Demo_Beagle.png"></img>
   <em>If the BG & FG are similar in colour, significant user input is required to produce a usable mask</em>
@@ -33,8 +34,8 @@ Potentially useful titbits you might find in this project - Typescript implement
 <h4>Work in progress</h4>
 <ul>
   <li>Downscale large images before constructing the colour GMM models</li>
-  <li>Add fiddly knobs to control more parameters (i.e. no. of GMM colour clusters / Cohesiveness factor)</li>
   <li>Route existing console messages to a visible progress bar during Grabcut to give the illusion of progress</li>
+  <li><del>Add fiddly knobs to control more parameters (i.e. no. of GMM colour clusters / Cohesiveness factor)</del></li>
   <li><del>Add zoom + panning features to user touchup</del></li>
   <li><del>Support export of images without premultiplied alpha so colour data isn't lost</del></li>
   <li><del>[Optimization of graph cut] Replace Dinic's algorithm with Boykov Kolmogorov's max flow algorithm (the repeated BFS on the source node kills performance)</del></li>
