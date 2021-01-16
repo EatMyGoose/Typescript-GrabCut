@@ -58,20 +58,51 @@
                 <br>
                 <div id="Fine Tuning">
                     <h3>Advanced Settings:</h3>
-                    <div>
-                        <label for="text-max-iter">Max GrabCut Iterations:</label>
-                        <br>
-                        <input id="text-max-iter" class="tb-small" data-default="5" data-err-class="error" value="5"
-                            type="number" min="1" max="10"></input>
-                    </div>
 
-                    <div>
-                        <label for="text-iter-convergence">GrabCut Convergence Criteria (% Energy difference between
-                            iterations):</label>
-                        <br>
-                        <input id="text-iter-convergence" class="tb-small" data-default="1" data-err-class="error"
-                            value="1" type="number" min="0" max="100" step="0.2"></input>
-                    </div>
+                    <table>
+                        <tr>
+                            <td>
+                                <label for="text-max-iter">Max GrabCut Iterations:</label>
+                            </td>
+                            <td>
+                                <input id="text-max-iter" class="tb-small" data-default="5" data-err-class="error"
+                                    value="5" type="number" min="1" max="10"></input>
+                            </td>
+                            <td>
+                                <label for="text-fg-gmms">FG GMM clusters:</label>
+                            </td>
+                            <td>
+                                <input id="text-fg-gmms" class="tb-small" data-default="5" data-err-class="error"
+                                    value="5" type="number" min="1" max="10"></input>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <label for="text-iter-convergence">Convergence Criteria (%):</label>
+                                <br>
+                            </td>
+                            <td>
+                                <input id="text-iter-convergence" class="tb-small" data-default="1"
+                                    data-err-class="error" value="1" type="number" min="0" max="100" step="0.2"></input>
+                            </td>
+                            <td>
+                                <label for="text-bg-gmms">BG GMM clusters:</label>
+                            </td>
+                            <td>
+                                <input id="text-bg-gmms" class="tb-small" data-default="5" data-err-class="error"
+                                    value="5" type="number" min="1" max="10"></input>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <label for="text-cohesiveness">Cohesion Factor:</label>
+                            </td>
+                            <td>
+                                <input id="text-cohesiveness" class="tb-small" data-default="50" data-err-class="error"
+                                    value="50" type="number" min="1" max="500"></input>
+                            </td>
+                        </tr>
+                    </table>
                 </div>
             </div>
             <div class="flex-child">

@@ -85,6 +85,13 @@ class MouseDrag {
     }
 }
 
+export interface AdvancedControls{
+    tbMaxIter: ValidatedTextbox,
+    tbTolerance: ValidatedTextbox,
+    tbCohesion: ValidatedTextbox,
+    tbFGClusters: ValidatedTextbox,
+    tbBGClusters: ValidatedTextbox
+}
 
 export class Controller {
     canvasView: CanvasView;
@@ -98,8 +105,7 @@ export class Controller {
     brushRadioBtns: HTMLInputElement[];
     radiusRange: HTMLInputElement;
 
-    optMaxIter: ValidatedTextbox;
-    optTolerance: ValidatedTextbox;
+    advControls:AdvancedControls;
 
     private toolHandler: Tools.IToolHandler = null;
     private debounce: MouseDebounce = new MouseDebounce();
@@ -110,15 +116,14 @@ export class Controller {
         file: File.FileInput, canvas: HTMLCanvasElement,
         cropBtn: HTMLInputElement, brushRadioBtns: HTMLInputElement[],
         radiusRange: HTMLInputElement,
-        maxIter: ValidatedTextbox, tolerance: ValidatedTextbox) {
+        advList:AdvancedControls) {
 
         this.file = file;
         this.canvas = canvas;
         this.cropBtn = cropBtn;
         this.brushRadioBtns = brushRadioBtns;
         this.radiusRange = radiusRange;
-        this.optMaxIter = maxIter;
-        this.optTolerance = tolerance;
+        this.advControls = advList;
 
         canvas.addEventListener("mousedown", this.begin.bind(this));
         canvas.addEventListener("mousemove", this.drag.bind(this));
@@ -146,10 +151,12 @@ export class Controller {
     }
 
     private triggerGrabCut() {
-        let maxIter = this.optMaxIter.GetValue();
-        let tol = this.optTolerance.GetValue();
-        console.log(`max:${maxIter}, tolerance:${tol}`);
-        this.model.StartGrabCut(maxIter, tol);
+        let maxIter = this.advControls.tbMaxIter.GetValue();
+        let tol = this.advControls.tbTolerance.GetValue();
+        let bgClusters = this.advControls.tbBGClusters.GetValue();
+        let fgClusters = this.advControls.tbFGClusters.GetValue();
+        let cohesion = this.advControls.tbCohesion.GetValue();
+        this.model.StartGrabCut(maxIter, tol, bgClusters, fgClusters, cohesion);
     }
 
     private GetSelectedBrush(): ToolActions {

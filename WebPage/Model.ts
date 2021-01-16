@@ -8,13 +8,13 @@ import { PreviewView } from "./PreviewView";
 import * as Ed from "./DrawCall";
 import * as Mat from "../Matrix";
 
-export const FGColour = new ImgUtil.RGBA(255,0,0,255); //Red
-export const BGColour = new ImgUtil.RGBA(0,0,255,255); //Blue
+export const FGColour = new ImgUtil.RGBA(255, 0, 0, 255); //Red
+export const BGColour = new ImgUtil.RGBA(0, 0, 255, 255); //Blue
 
 export class Model {
     private originalImage: HTMLImageElement;
     private originalImageData: ImageData;
-    
+
     //Stores the result of the cropped image in a data URL
     private croppedImage: string = null;
     private croppedImageAlpha: string = null;
@@ -36,31 +36,29 @@ export class Model {
     UpdateDrawCall(call: Ed.IDrawCall, finalize: boolean = false): void {
         if (!finalize) {
             this.pendingDrawOps = call;
-        }else{
+        } else {
             this.pendingDrawOps = null;
             this.canvasDrawOps.push(call);
         }
         this.TriggerCanvasRedraw();
     }
 
-    UndoLast(){
-        if(this.pendingDrawOps != null){
+    UndoLast() {
+        if (this.pendingDrawOps != null) {
             //Stop current operation
             this.pendingDrawOps = null;
-        }else{
+        } else {
             //Stop last queued operation
-            if(this.canvasDrawOps.length == 0) return;
+            if (this.canvasDrawOps.length == 0) return;
 
             this.canvasDrawOps.pop();
         }
         this.TriggerCanvasRedraw();
     }
 
-    GetDrawOps(imgToDestTransform:Mat.Matrix): Ed.IDrawCall[] {
-        let last = (this.pendingDrawOps == null)? [] : [this.pendingDrawOps];
+    GetDrawOps(imgToDestTransform: Mat.Matrix): Ed.IDrawCall[] {
+        let last = (this.pendingDrawOps == null) ? [] : [this.pendingDrawOps];
         let merged = this.canvasDrawOps.concat(last);
-        //let [width, height] = this.GetImageDim();
-        //let bufferDim = {x:0, y:0, width:width, height:height};
         return merged.map(drawOp => drawOp.Transform(imgToDestTransform));
     }
 
@@ -76,12 +74,12 @@ export class Model {
         this.preview = preview;
     }
 
-    ClearSelection():void{
+    ClearSelection(): void {
         this.pendingDrawOps = null;
         this.canvasDrawOps = [];
     }
 
-    ImageLoaded():boolean{
+    ImageLoaded(): boolean {
         return this.originalImage != null;
     }
 
@@ -124,9 +122,9 @@ export class Model {
         return [this.originalImage.width, this.originalImageData.height];
     }
 
-    GetCoordSystem(): Cam.Rect{
+    GetCoordSystem(): Cam.Rect {
         let [width, height] = this.GetImageDim();
-        return {x:0,y:0, width:width, height:height};
+        return { x: 0, y: 0, width: width, height: height };
     }
 
     GetOriginalImage(): HTMLImageElement {
@@ -140,7 +138,7 @@ export class Model {
             return this.croppedImage;
     }
 
-    private GetTrimap(){
+    private GetTrimap() {
         let [width, height] = this.GetImageDim();
         let tempCanvas = new ImgUtil.Temp2DCanvas(width, height);
         let hDC = tempCanvas.GetHDC();
@@ -154,20 +152,20 @@ export class Model {
         let trimap = Util.Fill2DObj<Cut.Trimap>(height, width, () => Cut.Trimap.Unknown);
 
         let arr = imgData.data;
-        for(let y = 0; y < height; y++){
-            for(let x = 0; x < width; x++){
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
                 let offset = (y * width + x) * 4;
                 let r = arr[offset + 0];
                 let g = arr[offset + 1];
                 let b = arr[offset + 2];
                 let a = arr[offset + 3];
-                let pixelColour = new ImgUtil.RGBA(r,g,b,a);
-                let trimapValue: Cut.Trimap; 
-                if(pixelColour.Equals(FGColour)){
+                let pixelColour = new ImgUtil.RGBA(r, g, b, a);
+                let trimapValue: Cut.Trimap;
+                if (pixelColour.Equals(FGColour)) {
                     trimapValue = Cut.Trimap.Foreground;
-                }else if (pixelColour.Equals(BGColour)){
+                } else if (pixelColour.Equals(BGColour)) {
                     trimapValue = Cut.Trimap.Background;
-                }else{
+                } else {
                     trimapValue = Cut.Trimap.Unknown;
                 }
                 trimap[y][x] = trimapValue;
@@ -176,14 +174,25 @@ export class Model {
         return trimap;
     }
 
-    StartGrabCut(this: Model, maxIter:number, tolerance:number): void {
+    StartGrabCut(this: Model,
+        maxIter: number,
+        tolerance: number,
+        nBGClusters: number,
+        nFGClusters: number,
+        cohesionFactor: number): void {
+
         let [width, height] = this.GetImageDim();
         let img = ImgUtil.ImageData2Mat(this.originalImageData);
         let cut = new Cut.GrabCut(img);
         let trimap = this.GetTrimap();
-        
+
         cut.SetTrimap(trimap, width, height);
-        cut.BeginCrop({tolerance:tolerance, maxIterations:maxIter});
+        cut.BeginCrop({ 
+            tolerance: tolerance, 
+            maxIterations: maxIter, 
+            cohesionFactor:cohesionFactor, 
+            nFGClusters: nFGClusters, 
+            nBGClusters: nBGClusters});
 
         let mask = cut.GetAlphaMask();
         //this.croppedImage = ImgUtil.ApplyAlphaMask(this.originalImageData, mask);

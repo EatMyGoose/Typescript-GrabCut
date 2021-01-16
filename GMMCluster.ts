@@ -97,9 +97,7 @@ export class V3Cluster{
 
     Likelihood(observation: M.Matrix): number {
         let diff = M.Sub(observation, this.params.mean);
-        let diff_Transposed = M.Transpose(diff);
-        let exponentMat = Mul_h3_3by3_v3(diff_Transposed, this.params.covarianceInv, diff);
-        let exponent = -0.5 * exponentMat;
+        let exponent = -0.5 * Mul_h3_3by3_v3(diff, this.params.covarianceInv);
         let result = this.params.coeff * Math.exp(exponent);
         //Likelihood should always be positive, no need to check for negative infinity
         result = isFinite(result) ? result : Number.MAX_SAFE_INTEGER;
@@ -108,10 +106,18 @@ export class V3Cluster{
     }
 }
 
-function Mul_h3_3by3_v3(h3:M.Matrix, _3by3: M.Matrix, v3:M.Matrix):number{
-    let c0 = h3[0][0] * _3by3[0][0] + h3[0][1] * _3by3[1][0] + h3[0][2] * _3by3[2][0];
-    let c1 = h3[0][0] * _3by3[0][1] + h3[0][1] * _3by3[1][1] + h3[0][2] * _3by3[2][1];
-    let c2 = h3[0][0] * _3by3[0][2] + h3[0][1] * _3by3[1][2] + h3[0][2] * _3by3[2][2];
+function Mul_h3_3by3_v3(v3:M.Matrix, _3by3: M.Matrix):number{
+    let e0 = v3[0][0];
+    let e1 = v3[1][0];
+    let e2 = v3[2][0];
 
-    return c0 * v3[0][0] + c1 * v3[1][0] + c2 * v3[2][0]
+    let r0 = _3by3[0];
+    let r1 = _3by3[1];
+    let r2 = _3by3[2];
+    
+    let c0 = e0 * r0[0] + e1 * r1[0] + e2 * r2[0];
+    let c1 = e0 * r0[1] + e1 * r1[1] + e2 * r2[1];
+    let c2 = e0 * r0[2] + e1 * r1[2] + e2 * r2[2];
+
+    return c0 * e0 + c1 * e1 + c2 * e2;
 }

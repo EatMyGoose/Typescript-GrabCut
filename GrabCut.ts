@@ -18,7 +18,10 @@ export enum Trimap {
 
 export interface Options {
     tolerance: number, //in %
-    maxIterations: number
+    maxIterations: number,
+    cohesionFactor:number,
+    nFGClusters:number,
+    nBGClusters:number
 }
 
 export class GrabCut {
@@ -61,6 +64,8 @@ export class GrabCut {
 
     //Returns the alpha mask
     BeginCrop(opt: Options) {
+        console.log(opt);
+
         for (let i = 0; i < this.trimap.length; i++) {
             this.matte[i] = (this.trimap[i] == Trimap.Background) ? Trimap.Background : Trimap.Foreground;
         }
@@ -70,22 +75,25 @@ export class GrabCut {
         //Initial color GMMs
         const GMM_N_ITER = 5;
         const MIN_PERCENT_CHANGE = 1;
-        this.fgGMM.Fit(fgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
-        this.bgGMM.Fit(bgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
+        
+        console.time("Grabcut-GM");
+        this.fgGMM.Fit(fgPixels, opt.nFGClusters, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
+        this.bgGMM.Fit(bgPixels, opt.nBGClusters, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
+        console.timeEnd("Grabcut-GM");
 
-        this.RunIterations(opt.maxIterations, opt.tolerance);
+        this.RunIterations(opt.maxIterations, opt.tolerance, opt.cohesionFactor);
     }
 
-    RunIterations(nIter: number, tolerancePercent: number) {
+    RunIterations(nIter: number, tolerancePercent: number, cohesionFactor:number) {
         //Create network graph (with edges between neighbouring pixels set)
         //Clone this network & populate with source and sink for use in the graphcut.
         let flowNetwork: FlowBase.IFlowNetwork = new BK.BKNetwork();//new Dinic.DinicNetwork();;
         let maxFlowSolver: FlowBase.IMaxFlowSolver = BK.BKMaxflow;//Dinic.DinicSolver;//;
 
-        console.time("Grabcut-GM");
-        let [network, maxCapacity] = GrabCut.GeneratePixel2PixelGraph(this.img, flowNetwork);
+        console.time("Grabcut-Pixel Graph");
+        let [network, maxCapacity] = GrabCut.GeneratePixel2PixelGraph(this.img, flowNetwork, cohesionFactor);
         let [srcNode, sinkNode] = GrabCut.InitSourceAndSink(network, this.width, this.height);
-        console.timeEnd("Grabcut-GM");
+        console.timeEnd("Grabcut-Pixel Graph");
 
         let conv = new Conv.ConvergenceChecker(tolerancePercent, nIter);
         let energy: number;
@@ -292,12 +300,6 @@ export class GrabCut {
             let prob = bgGMM.Predict(pixel).likelihoods;
             let bin = maxIndex(prob);
             bg[bin].push(pixel);
-            /*
-           if (bin < 0) {
-               console.log(prob);
-               throw new Error("pixel bin cannot be found");
-           }
-           */
         }
 
         for (let i = 0; i < fgPixels.length; i++) {
@@ -313,7 +315,7 @@ export class GrabCut {
     //TODO: Clone this network so it can be reused between iterations
     //Pixel to pixel edge capacities do not change
     //Returns the resultant network and the highest edge capacity
-    private static GeneratePixel2PixelGraph(img: Mat.Matrix[][], network: FlowBase.IFlowNetwork): [FlowBase.IFlowNetwork, number] {
+    private static GeneratePixel2PixelGraph(img: Mat.Matrix[][], network: FlowBase.IFlowNetwork, cohesionFactor:number): [FlowBase.IFlowNetwork, number] {
 
         let height = img.length;
         let width = img[0].length;
@@ -328,7 +330,7 @@ export class GrabCut {
         //let neighbours = [[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1],[1,0],[1,-1]];
         //neighbours within the 4 cardinal directions gives a better result than 8 surrounding pixels.
         let neighbours = [[0, -1], [-1, 0], [0, 1], [1, 0]];
-        let coeff = neighbours.map(t => 50 / Math.sqrt(t[0] ** 2 + t[1] ** 2));
+        let coeff = neighbours.map(t => cohesionFactor / Math.sqrt(t[0] ** 2 + t[1] ** 2));
 
         let GetNeighbour = (r: number, c: number, neighbourInd: number): [boolean, number, number] => {
             let offset = neighbours[neighbourInd];
@@ -386,7 +388,6 @@ export class GrabCut {
                     }
 
                     network.CreateEdge(nodeIndex, neighbourIndex, capacity);
-
                     maxCap = (capacity > maxCap) ? capacity : maxCap;
                 }
             }

@@ -1499,9 +1499,7 @@ define("GMMCluster", ["require", "exports", "Matrix"], function (require, export
         }
         V3Cluster.prototype.Likelihood = function (observation) {
             var diff = M.Sub(observation, this.params.mean);
-            var diff_Transposed = M.Transpose(diff);
-            var exponentMat = Mul_h3_3by3_v3(diff_Transposed, this.params.covarianceInv, diff);
-            var exponent = -0.5 * exponentMat;
+            var exponent = -0.5 * Mul_h3_3by3_v3(diff, this.params.covarianceInv);
             var result = this.params.coeff * Math.exp(exponent);
             result = isFinite(result) ? result : Number.MAX_SAFE_INTEGER;
             return result;
@@ -1509,11 +1507,17 @@ define("GMMCluster", ["require", "exports", "Matrix"], function (require, export
         return V3Cluster;
     }());
     exports.V3Cluster = V3Cluster;
-    function Mul_h3_3by3_v3(h3, _3by3, v3) {
-        var c0 = h3[0][0] * _3by3[0][0] + h3[0][1] * _3by3[1][0] + h3[0][2] * _3by3[2][0];
-        var c1 = h3[0][0] * _3by3[0][1] + h3[0][1] * _3by3[1][1] + h3[0][2] * _3by3[2][1];
-        var c2 = h3[0][0] * _3by3[0][2] + h3[0][1] * _3by3[1][2] + h3[0][2] * _3by3[2][2];
-        return c0 * v3[0][0] + c1 * v3[1][0] + c2 * v3[2][0];
+    function Mul_h3_3by3_v3(v3, _3by3) {
+        var e0 = v3[0][0];
+        var e1 = v3[1][0];
+        var e2 = v3[2][0];
+        var r0 = _3by3[0];
+        var r1 = _3by3[1];
+        var r2 = _3by3[2];
+        var c0 = e0 * r0[0] + e1 * r1[0] + e2 * r2[0];
+        var c1 = e0 * r0[1] + e1 * r1[1] + e2 * r2[1];
+        var c2 = e0 * r0[2] + e1 * r1[2] + e2 * r2[2];
+        return c0 * e0 + c1 * e1 + c2 * e2;
     }
 });
 define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "ConvergenceChecker", "GMMCluster"], function (require, exports, Util, Mat, KM, Conv, C) {
@@ -1745,24 +1749,27 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             }
         };
         GrabCut.prototype.BeginCrop = function (opt) {
+            console.log(opt);
             for (var i = 0; i < this.trimap.length; i++) {
                 this.matte[i] = (this.trimap[i] == Trimap.Background) ? Trimap.Background : Trimap.Foreground;
             }
             var _a = GrabCut.SegregatePixels(this.img, this.matte, 0, 0, this.height, this.width), fgPixels = _a[0], bgPixels = _a[1];
             var GMM_N_ITER = 5;
             var MIN_PERCENT_CHANGE = 1;
-            this.fgGMM.Fit(fgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
-            this.bgGMM.Fit(bgPixels, 5, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
-            this.RunIterations(opt.maxIterations, opt.tolerance);
+            console.time("Grabcut-GM");
+            this.fgGMM.Fit(fgPixels, opt.nFGClusters, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
+            this.bgGMM.Fit(bgPixels, opt.nBGClusters, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
+            console.timeEnd("Grabcut-GM");
+            this.RunIterations(opt.maxIterations, opt.tolerance, opt.cohesionFactor);
         };
-        GrabCut.prototype.RunIterations = function (nIter, tolerancePercent) {
+        GrabCut.prototype.RunIterations = function (nIter, tolerancePercent, cohesionFactor) {
             var _a;
             var flowNetwork = new BK.BKNetwork();
             var maxFlowSolver = BK.BKMaxflow;
-            console.time("Grabcut-GM");
-            var _b = GrabCut.GeneratePixel2PixelGraph(this.img, flowNetwork), network = _b[0], maxCapacity = _b[1];
+            console.time("Grabcut-Pixel Graph");
+            var _b = GrabCut.GeneratePixel2PixelGraph(this.img, flowNetwork, cohesionFactor), network = _b[0], maxCapacity = _b[1];
             var _c = GrabCut.InitSourceAndSink(network, this.width, this.height), srcNode = _c[0], sinkNode = _c[1];
-            console.timeEnd("Grabcut-GM");
+            console.timeEnd("Grabcut-Pixel Graph");
             var conv = new Conv.ConvergenceChecker(tolerancePercent, nIter);
             var energy;
             var labels = Util.Fill(this.width * this.height, 0);
@@ -1914,7 +1921,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             }
             return [fg, bg];
         };
-        GrabCut.GeneratePixel2PixelGraph = function (img, network) {
+        GrabCut.GeneratePixel2PixelGraph = function (img, network, cohesionFactor) {
             var height = img.length;
             var width = img[0].length;
             {
@@ -1924,7 +1931,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
                 }
             }
             var neighbours = [[0, -1], [-1, 0], [0, 1], [1, 0]];
-            var coeff = neighbours.map(function (t) { return 50 / Math.sqrt(Math.pow(t[0], 2) + Math.pow(t[1], 2)); });
+            var coeff = neighbours.map(function (t) { return cohesionFactor / Math.sqrt(Math.pow(t[0], 2) + Math.pow(t[1], 2)); });
             var GetNeighbour = function (r, c, neighbourInd) {
                 var offset = neighbours[neighbourInd];
                 var nR = r + offset[0];
@@ -2882,13 +2889,19 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
             }
             return trimap;
         };
-        Model.prototype.StartGrabCut = function (maxIter, tolerance) {
+        Model.prototype.StartGrabCut = function (maxIter, tolerance, nBGClusters, nFGClusters, cohesionFactor) {
             var _a = this.GetImageDim(), width = _a[0], height = _a[1];
             var img = ImgUtil.ImageData2Mat(this.originalImageData);
             var cut = new Cut.GrabCut(img);
             var trimap = this.GetTrimap();
             cut.SetTrimap(trimap, width, height);
-            cut.BeginCrop({ tolerance: tolerance, maxIterations: maxIter });
+            cut.BeginCrop({
+                tolerance: tolerance,
+                maxIterations: maxIter,
+                cohesionFactor: cohesionFactor,
+                nFGClusters: nFGClusters,
+                nBGClusters: nBGClusters
+            });
             var mask = cut.GetAlphaMask();
             var alphaApplied = ImgUtil.ApplyAlphaMaskToImgData(this.originalImageData, mask);
             this.croppedImage = ImgUtil.ImgData2URL(alphaApplied);
@@ -3153,7 +3166,7 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPag
         return MouseDrag;
     }());
     var Controller = (function () {
-        function Controller(file, canvas, cropBtn, brushRadioBtns, radiusRange, maxIter, tolerance) {
+        function Controller(file, canvas, cropBtn, brushRadioBtns, radiusRange, advList) {
             this.toolHandler = null;
             this.debounce = new MouseDebounce();
             this.mDrag = new MouseDrag();
@@ -3162,8 +3175,7 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPag
             this.cropBtn = cropBtn;
             this.brushRadioBtns = brushRadioBtns;
             this.radiusRange = radiusRange;
-            this.optMaxIter = maxIter;
-            this.optTolerance = tolerance;
+            this.advControls = advList;
             canvas.addEventListener("mousedown", this.begin.bind(this));
             canvas.addEventListener("mousemove", this.drag.bind(this));
             canvas.addEventListener("mouseup", this.end.bind(this));
@@ -3183,10 +3195,12 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPag
             });
         };
         Controller.prototype.triggerGrabCut = function () {
-            var maxIter = this.optMaxIter.GetValue();
-            var tol = this.optTolerance.GetValue();
-            console.log("max:" + maxIter + ", tolerance:" + tol);
-            this.model.StartGrabCut(maxIter, tol);
+            var maxIter = this.advControls.tbMaxIter.GetValue();
+            var tol = this.advControls.tbTolerance.GetValue();
+            var bgClusters = this.advControls.tbBGClusters.GetValue();
+            var fgClusters = this.advControls.tbFGClusters.GetValue();
+            var cohesion = this.advControls.tbCohesion.GetValue();
+            this.model.StartGrabCut(maxIter, tol, bgClusters, fgClusters, cohesion);
         };
         Controller.prototype.GetSelectedBrush = function () {
             var _this = this;
@@ -3303,13 +3317,23 @@ define("WebPage/PageMain", ["require", "exports", "WebPage/FileInput", "WebPage/
     var download = document.getElementById("a-download");
     var radiusRange = document.getElementById("range-brush-size");
     var brushRadioBtns = Array.from(document.getElementsByName("brush"));
-    var optMaxIter = new ValidatedTextbox("text-max-iter");
-    var optTolerance = new ValidatedTextbox("text-iter-convergence");
     var file = new FileInput_1.FileInput("file-image");
+    var tbMaxIter = new ValidatedTextbox("text-max-iter");
+    var tbTolerance = new ValidatedTextbox("text-iter-convergence");
+    var tbCohesion = new ValidatedTextbox("text-cohesiveness");
+    var tbFGClusters = new ValidatedTextbox("text-fg-gmms");
+    var tbBGClusters = new ValidatedTextbox("text-bg-gmms");
+    var advControls = {
+        tbMaxIter: tbMaxIter,
+        tbTolerance: tbTolerance,
+        tbCohesion: tbCohesion,
+        tbFGClusters: tbFGClusters,
+        tbBGClusters: tbBGClusters
+    };
     var view = new CanvasView_1.CanvasView(imgCanvas, editCanvas);
     var previewView = new PreviewView_1.PreviewView(previewImg, btnAlpha, btnImage, download);
     var model = new Model_2.Model();
-    var controller = new Controller_1.Controller(file, imgCanvas, cropBtn, brushRadioBtns, radiusRange, optMaxIter, optTolerance);
+    var controller = new Controller_1.Controller(file, imgCanvas, cropBtn, brushRadioBtns, radiusRange, advControls);
     view.AttachModel(model);
     previewView.AttachModel(model);
     previewView.AttachEditorView(view);
