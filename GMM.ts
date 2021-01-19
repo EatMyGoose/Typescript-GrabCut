@@ -28,10 +28,8 @@ export class GMMResult {
 }
 
 export class GMM {
-    //clusters: GMMCluster[];
     clusters: C.ICluster[];
 
-    //TODO: remove parameters for constructor (Fit can calculate all of the relevant params)
     constructor() {
 
     }
@@ -48,7 +46,7 @@ export class GMM {
             data = rawData.map(m => Mat.Transpose(m));
         }
 
-        console.log("GMM:Init Clusters");
+        console.time("GMM:Init Clusters");
         //Init Clusters
         let newClusters: C.ICluster[];
         switch (init) {
@@ -57,19 +55,24 @@ export class GMM {
                 break;
             }
             case Initializer.KMeansPlusPlus: {
+                console.time("KMeans");
                 let kMeansResult = KM.Fit(data, nClusters, 20, 1, KM.Initializer.KMeansPlusPlus);
                 let nonEmptyClusters = kMeansResult.clusters.filter(c => c.length > 0);
+                console.timeEnd("KMeans");
+                console.time("Points2GMM");
                 newClusters = nonEmptyClusters.map(c => GMM.Points2GMMCluster(c, data.length));
+                console.timeEnd("Points2GMM");
                 break;
             }
         }
+        console.timeEnd("GMM:Init Clusters");
 
         console.log("GMM:EM-start");
         //EM-Iteration
         let conv = new Conv.ConvergenceChecker(MIN_PERCENT_CHANGE, MAX_ITER);
         let logProb: number;
         do {
-            newClusters = this.EM(data, newClusters);
+            newClusters = EM(data, newClusters);
             logProb = GMM.LogLikelihood(data, newClusters);
             console.log(`Iteration:${conv.getCurrentIter()}, logProb:${logProb}`);
         } while (!conv.hasConverged(logProb));
@@ -95,108 +98,6 @@ export class GMM {
         });
     }
 
-    //data: column vectors of each observation
-    private EM(data: Mat.Matrix[], initialClusters: C.ICluster[]): C.ICluster[] {
-
-        let ReplaceZeroes = (arr: number[], lowerThreshold: number): void => {
-            for (let i = 0; i < arr.length; i++) {
-                if (arr[i] < lowerThreshold) arr[i] = lowerThreshold;
-            }
-        };
-
-        if (data.length == 0) {
-            throw new Error("Empty data set");
-        }
-
-        let nDataPoints = data.length;
-        let nDims = Mat.Rows(data[0]);
-        let nClusters = initialClusters.length;
-
-        //Rows: stores the probabilities of the nth cluster
-        //Columns: probabilities of x-th observation for the n-th cluster
-        let prob = Mat.CreateMatrix(nClusters, nDataPoints);
-        let probSum = Util.Fill<number>(data.length, 0);
-
-        //http://www.cse.iitm.ac.in/~vplab/courses/DVP/PDF/gmm.pdf
-
-        for (let c = 0; c < nClusters; c++) {
-            let currentCluster = initialClusters[c];
-            for (let d = 0; d < nDataPoints; d++) {
-                let p = currentCluster.Likelihood(data[d]);
-                if (isNaN(p)) {
-                    console.log(currentCluster);
-                    throw new Error("NaN");
-                }
-                prob[c][d] = p;
-                probSum[d] += p;
-            }
-        }
-
-        //Scan total probabilities for zero
-        //Replace zeroes with a small value to prevent div by zero errors
-        const eps = 1e-9;
-        ReplaceZeroes(probSum, eps);
-
-        let resp = Mat.CreateMatrix(nClusters, nDataPoints);
-        let clusterResp = Util.Fill<number>(nClusters, 0);
-        for (let c = 0; c < nClusters; c++) {
-            for (let d = 0; d < nDataPoints; d++) {
-                let r = prob[c][d] / probSum[d];
-                resp[c][d] = r;
-                clusterResp[c] += r;
-            }
-        }
-
-        ReplaceZeroes(clusterResp, eps);
-
-        //console.log(clusterResp);
-
-        //Recluster
-        //Means
-        let clusterSum =
-            Util
-                .FillObj<Mat.Matrix>(nClusters, () => Mat.CreateMatrix(nDims, 1));
-
-        for (let c = 0; c < nClusters; c++) {
-            for (let d = 0; d < nDataPoints; d++) {
-                let contribution = Mat.Scale(resp[c][d], data[d]);
-                Mat.AddInPlace(clusterSum[c], contribution);
-            }
-            if (Mat.Any(clusterSum[c], e => isNaN(e))) {
-                throw new Error("cluster sum NaN");
-            }
-        }
-
-        let means =
-            clusterSum
-                .map((sum, index) => Mat.Scale(1 / clusterResp[index], sum));
-
-        //Weights
-        let weights = clusterResp.map(x => x / nDataPoints);
-
-        //Covariances        
-        let covAcc =
-            Util
-                .FillObj<Mat.Matrix>(nClusters, () => Mat.CreateMatrix(nDims, nDims));
-
-        for (let c = 0; c < nClusters; c++) {
-            for (let d = 0; d < nDataPoints; d++) {
-                let diff = Mat.Sub(data[d], means[c]);
-                let diffTransposed = Mat.Transpose(diff);
-                let contribution = Mat.Scale(resp[c][d], Mat.Mul(diff, diffTransposed));
-                Mat.AddInPlace(covAcc[c], contribution);
-            }
-        }
-
-        let covariances =
-            covAcc.map((cov, ind) => Mat.Scale(1 / clusterResp[ind], cov));
-
-        //Return new GMM cluster hyperparameters
-        return means.map((_, cIndex) => {
-            return C.ClusterFactory(weights[cIndex], means[cIndex], covariances[cIndex]);
-        });
-    }
-
     //Returns the fg and bg GMMS
     static labelledDataToGMMs(
         fgLabels: number[], fgGroupSize: number[],
@@ -208,7 +109,7 @@ export class GMM {
 
         let createCluster = (_tags: number[], _groupSizes: number[]) => {
             let totalPoints = Util.Sum(_groupSizes);
-            return _tags.map((t,ind) => {
+            return _tags.map((t, ind) => {
                 let groupSize = _groupSizes[ind];
                 let pi = groupSize / totalPoints;
                 let params = Mat.MeanAndCovarianceFromLabelledData(t, labels, data);
@@ -253,3 +154,188 @@ export class GMM {
         return logProb;
     }
 }
+
+
+//data: column vectors of each observation
+function EM(data: Mat.Matrix[], initialClusters: C.ICluster[]): C.ICluster[] {
+
+    let ReplaceZeroes = (arr: number[], lowerThreshold: number): void => {
+        for (let i = 0; i < arr.length; i++) {
+            if (arr[i] < lowerThreshold) arr[i] = lowerThreshold;
+        }
+    };
+
+    if (data.length == 0) {
+        throw new Error("Empty data set");
+    }
+
+    console.time("EM-init");
+    let nDataPoints = data.length;
+    let nDims = Mat.Rows(data[0]);
+    let nClusters = initialClusters.length;
+
+    //Rows: stores the probabilities of the nth cluster
+    //Columns: probabilities of x-th observation for the n-th cluster
+    let prob = Mat.CreateMatrix(nClusters, nDataPoints);
+    let probSum = Util.Fill<number>(data.length, 0);
+
+    //http://www.cse.iitm.ac.in/~vplab/courses/DVP/PDF/gmm.pdf
+
+    console.time("EM-Likelihood-eval");
+    for (let c = 0; c < nClusters; c++) {
+        let currentCluster = initialClusters[c];
+        for (let d = 0; d < nDataPoints; d++) {
+            let p = currentCluster.Likelihood(data[d]);
+            if (isNaN(p)) {
+                console.log(currentCluster);
+                throw new Error("NaN");
+            }
+            prob[c][d] = p;
+            probSum[d] += p;
+        }
+    }
+
+    console.timeEnd("EM-Likelihood-eval");
+
+    //Scan total probabilities for zero
+    //Replace zeroes with a small value to prevent div by zero errors
+    const eps = 1e-9;
+    ReplaceZeroes(probSum, eps);
+
+    let resp = Mat.CreateMatrix(nClusters, nDataPoints);
+    let clusterResp = Util.Fill<number>(nClusters, 0);
+    for (let c = 0; c < nClusters; c++) {
+        for (let d = 0; d < nDataPoints; d++) {
+            let r = prob[c][d] / probSum[d];
+            resp[c][d] = r;
+            clusterResp[c] += r;
+        }
+    }
+
+    ReplaceZeroes(clusterResp, eps);
+
+    console.timeEnd("EM-init");
+
+    //Recluster
+    //Means
+    let clusterSum =
+        Util
+            .FillObj<Mat.Matrix>(nClusters, () => Mat.CreateMatrix(nDims, 1));
+
+    console.time("EM-Resp-Sum");
+
+    let fnSumResp:sumRespDelegate = (nDims == 3) ? SumResponsibilityV3 : SumResponsibilityGeneric;
+
+    fnSumResp(data, clusterSum, resp, nClusters);
+
+    for (let c = 0; c < nClusters; c++) {
+        if (Mat.Any(clusterSum[c], e => isNaN(e))) {
+            throw new Error("cluster sum NaN");
+        }
+    }
+
+    console.timeEnd("EM-Resp-Sum");
+
+    let means =
+        clusterSum
+            .map((sum, index) => Mat.Scale(1 / clusterResp[index], sum));
+
+    //Weights
+    let weights = clusterResp.map(x => x / nDataPoints);
+
+    //Covariances        
+    let covAcc = Util.FillObj<Mat.Matrix>(nClusters, () => Mat.CreateMatrix(nDims, nDims));
+
+    console.time("EM-cov-cal");
+
+    let fnCovSum:covSumDelegate = (nDims == 3) ? sumCovarianceV3 : sumCovarianceGeneric;
+    fnCovSum(data, nClusters, means, resp, covAcc);
+
+    console.timeEnd("EM-cov-cal");
+
+    let covariances =
+        covAcc.map((cov, ind) => Mat.Scale(1 / clusterResp[ind], cov));
+
+    //Return new GMM cluster hyperparameters
+    return means.map((_, cIndex) => {
+        return C.ClusterFactory(weights[cIndex], means[cIndex], covariances[cIndex]);
+    });
+}
+
+//#region summation of responsibilities
+type sumRespDelegate = (_data: Mat.Matrix[], _clusterSum: Mat.Matrix[], _resp: number[][], _nClusters: number) => void;
+ 
+function SumResponsibilityGeneric(_data: Mat.Matrix[], _clusterSum: Mat.Matrix[], _resp: number[][], _nClusters: number) {
+    for (let c = 0; c < _nClusters; c++) {
+        for (let d = 0; d < _data.length; d++) {
+            let contribution = Mat.Scale(_resp[c][d], _data[d]);
+            Mat.AddInPlace(_clusterSum[c], contribution);
+        }
+    }
+}
+
+function SumResponsibilityV3(_data: Mat.Matrix[], _clusterSum: Mat.Matrix[], _resp: number[][], _nClusters: number) {
+    for (let c = 0; c < _nClusters; c++) {
+        for (let d = 0; d < _data.length; d++) {
+            let dest = _clusterSum[c];
+            let scale = _resp[c][d];
+            let data = _data[d];
+
+            dest[0][0] += scale * data[0][0];
+            dest[1][0] += scale * data[1][0];
+            dest[2][0] += scale * data[2][0];
+        }
+    }
+}
+
+//#endregion summation of responsibilities
+
+//#region summation of covariances
+
+type covSumDelegate = (data: Mat.Matrix[], nClusters: number, means: Mat.Matrix[], resp:number[][], covAcc: Mat.Matrix[]) => void;
+
+function sumCovarianceGeneric(_data: Mat.Matrix[], _nClusters: number, _means: Mat.Matrix[], _resp:number[][], _covAcc: Mat.Matrix[]) {
+    for (let c = 0; c < _nClusters; c++) {
+        for (let d = 0; d < _data.length; d++) {
+            let diff = Mat.Sub(_data[d], _means[c]);
+            let diffTransposed = Mat.Transpose(diff);
+            let contribution = Mat.Scale(_resp[c][d], Mat.Mul(diff, diffTransposed));
+            Mat.AddInPlace(_covAcc[c], contribution);
+        }
+    }
+}
+
+function sumCovarianceV3(_data: Mat.Matrix[], _nClusters: number, _means: Mat.Matrix[], _resp:number[][], _covAcc: Mat.Matrix[]) {
+    for (let c = 0; c < _nClusters; c++) {
+        for (let d = 0; d < _data.length; d++) {
+            let v3 = _data[d];
+            let m = _means[c];
+
+            let e0 = v3[0][0] - m[0][0];
+            let e1 = v3[1][0] - m[1][0];
+            let e2 = v3[2][0] - m[2][0];
+
+            let scale = _resp[c][d];
+
+            let dest = _covAcc[c];
+
+            //Add in place
+            let r0 = dest[0];
+            r0[0] += scale * e0 * e0;
+            r0[1] += scale * e0 * e1;
+            r0[2] += scale * e0 * e2;
+
+            let r1 = dest[1];
+            r1[0] += scale * e1 * e0;
+            r1[1] += scale * e1 * e1;
+            r1[2] += scale * e1 * e2;
+
+            let r2 = dest[2];
+            r2[0] += scale * e2 * e0;
+            r2[1] += scale * e2 * e1;
+            r2[2] += scale * e2 * e2;
+        }
+    }
+}
+
+//#endregion summation of covariances

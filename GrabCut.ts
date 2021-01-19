@@ -8,7 +8,7 @@ import * as FlowBase from "./FlowNetworkSolver";
 import * as Mat from "./Matrix";
 import * as Util from "./Utility";
 import * as Conv from "./ConvergenceChecker";
-
+import * as V3 from "./V3";
 
 export enum Trimap {
     Background = 0,
@@ -317,6 +317,8 @@ export class GrabCut {
     //Returns the resultant network and the highest edge capacity
     private static GeneratePixel2PixelGraph(img: Mat.Matrix[][], network: FlowBase.IFlowNetwork, cohesionFactor:number): [FlowBase.IFlowNetwork, number] {
 
+        let isV3 = V3.isV3(img[0][0]);
+
         let height = img.length;
         let width = img[0].length;
         {
@@ -343,6 +345,11 @@ export class GrabCut {
         //Find beta (the mean difference between a pixel and its neighbours)
         let nCount = 0;
         let diffAcc = 0;
+
+        let fnDiffSquare = (isV3)? 
+            V3.DiffNormSquare:
+            function(v1:Mat.Matrix, v2:Mat.Matrix) {return Mat.NormSquare(Mat.Sub(v1, v2))};
+
         for (let r = 0; r < height; r++) {
             for (let c = 0; c < width; c++) {
                 let currentPixel = img[r][c];
@@ -352,7 +359,7 @@ export class GrabCut {
                     if (!validNeighbour) continue;
 
                     let neighbouringPixel = img[nR][nC];
-                    let diffSquare = Mat.NormSquare(Mat.Sub(currentPixel, neighbouringPixel));
+                    let diffSquare = fnDiffSquare(currentPixel, neighbouringPixel);
                     diffAcc += diffSquare;
                     nCount++;
                 }
@@ -373,7 +380,7 @@ export class GrabCut {
                     if (!validNeighbour) continue;
 
                     let neighbourIndex = GrabCut.GetArrayIndex(nR, nC, width);
-                    let diffSquare = Mat.NormSquare(Mat.Sub(img[r][c], img[nR][nC]));
+                    let diffSquare = fnDiffSquare(img[r][c], img[nR][nC]);
                     let exponent = -beta * diffSquare;
                     let capacity = coeff[i] * Math.exp(exponent);
 

@@ -2,6 +2,7 @@ import * as Util from './Utility';
 import * as Mat from "./Matrix";
 import { Dictionary } from './Collections';
 import * as Conv from './ConvergenceChecker';
+import * as V3 from "./V3";
 
 export class KMeansResult {
     readonly clusters: Mat.Matrix[][];
@@ -17,15 +18,37 @@ export class KMeansResult {
         if (this.meanDist >= 0) return this.meanDist;
 
         let nElems = Util.Sum(this.clusters.map(c => c.length));
-        let distAcc = 0;
-        this.clusters.forEach((c, ind) => {
-            for (let i = 0; i < c.length; i++) {
-                let diff = Mat.Sub(c[i], this.means[ind]);
-                distAcc += Mat.Norm(diff);
-            }
-        });
-        this.meanDist = distAcc / nElems;
 
+        let first = this.means[0];
+        let isV3 = V3.isV3(first);
+
+        function GenericDist(_means:Mat.Matrix[], _clusters:Mat.Matrix[][]): number {
+            let distAcc = 0;
+
+            _clusters.forEach((c, ind) => {
+                let clusterMean = _means[ind];
+                for (let i = 0; i < c.length; i++) {
+                    let diff = Mat.Sub(c[i], clusterMean);
+                    distAcc += Mat.Norm(diff);
+                }
+            });
+            return distAcc / nElems;
+        }
+
+        function V3Dist (_means:Mat.Matrix[], _clusters:Mat.Matrix[][]): number {
+            let distAcc = 0;
+
+            _clusters.forEach((c, ind) => {
+                let clusterMean = _means[ind];
+                for (let i = 0; i < c.length; i++) {
+                    distAcc += Math.sqrt(V3.DiffNormSquare(c[i], clusterMean));
+                }
+            });
+            return distAcc / nElems;
+        }
+
+        let fnDist = (isV3)? V3Dist: GenericDist;
+        this.meanDist = fnDist(this.means, this.clusters);
         return this.meanDist;
     }
 }
@@ -48,13 +71,18 @@ function kMeansPlusPlusInit(nClusters: number, data: Mat.Matrix[]): [boolean, Ma
     let prob: number[] = new Array(data.length);
     let cumProb: number[] = new Array(data.length);
 
+    let isV3 = V3.isV3(data[0]);
+
+    let fnDiffSquare = (isV3)? 
+        V3.DiffNormSquare : 
+        function(v1:Mat.Matrix, v2:Mat.Matrix) {return Mat.NormSquare(Mat.Sub(v1, v2))};
+
     while (centres.length < nClusters) {
         //Probability proportional to square of distance from closest centre
         for (let i = 0; i < data.length; i++) {
             let minDist = Number.MAX_VALUE;
             for (let c = 0; c < centres.length; c++) {
-                let diff = Mat.Sub(data[i], centres[c]);
-                let dist = Mat.NormSquare(diff);
+                let dist = fnDiffSquare(data[i], centres[c]);
                 if (dist < minDist) {
                     minDist = dist;
                 }
@@ -71,10 +99,10 @@ function kMeansPlusPlusInit(nClusters: number, data: Mat.Matrix[]): [boolean, Ma
 
         let max = cumProb[cumProb.length - 1];
 
-        if (max == 0){ //All values are equal (hence max = 0)
+        if (max == 0) { //All values are equal (hence max = 0)
             let equalCentres = new Array(nClusters);
-            for(let i = 0; i < nClusters; i++) equalCentres[i] = data[firstIndex];
-            return [false,equalCentres];
+            for (let i = 0; i < nClusters; i++) equalCentres[i] = data[firstIndex];
+            return [false, equalCentres];
         }
 
         let selectedIndex = 0;
@@ -92,7 +120,7 @@ function kMeansPlusPlusInit(nClusters: number, data: Mat.Matrix[]): [boolean, Ma
         selected.Set(selectedIndex, true);
         centres.push(data[selectedIndex]);
     }
-    return [true,centres];
+    return [true, centres];
 }
 
 //Expects column vectors as inputs
@@ -104,8 +132,10 @@ export function Fit(
 
     let [nRows, nCols] = Mat.Dimensions(data[0]);
     //Init;
-    let uniqueClusters:boolean;
-    let clusterCentres:Mat.Matrix[];
+    let uniqueClusters: boolean;
+    let clusterCentres: Mat.Matrix[];
+
+    let isV3 = V3.isV3(data[0]);
 
     if (init == Initializer.random) {
         clusterCentres = Util.UniqueRandom(nClusters, data.length - 1).map(i => data[i]);
@@ -129,10 +159,11 @@ export function Fit(
         //Assignment
 
         //Recomputation of means
+        let fnAdd = (isV3)? V3.AddInPlace : Mat.AddInPlace;
         clusterCentres = clusters.map(c => {
             let acc = Mat.CreateMatrix(nRows, nCols);
             for (let i = 0; i < c.length; i++) {
-                Mat.AddInPlace(acc, c[i]);
+                fnAdd(acc, c[i]);
             }
             return Mat.Scale(1 / c.length, acc);
         })
@@ -149,17 +180,39 @@ function GroupToNearestMean(data: Mat.Matrix[], means: Mat.Matrix[]): Mat.Matrix
     let nClusters = means.length;
     let clusters: Mat.Matrix[][] = Util.FillObj(nClusters, () => []);
 
-    for (let d = 0; d < data.length; d++) {
-        let [maxDist, clusterInd] = [Number.MAX_VALUE, -1]
-        for (let m = 0; m < nClusters; m++) {
-            let diff = Mat.Sub(data[d], means[m]);
-            let dist = Mat.NormSquare(diff);
-            if (dist < maxDist) {
-                maxDist = dist;
-                clusterInd = m;
+    let isV3 = V3.isV3(data[0]);
+
+    function GenericGroup(_clusterBuffer: Mat.Matrix[][], _data:Mat.Matrix[], _means:Mat.Matrix[]):Mat.Matrix[][]{
+        for (let d = 0; d < _data.length; d++) {
+            let [maxDist, clusterInd] = [Number.MAX_VALUE, -1]
+            for (let m = 0; m < _means.length; m++) {
+                let diff = Mat.Sub(_data[d], _means[m]);
+                let dist = Mat.NormSquare(diff);
+                if (dist < maxDist) {
+                    maxDist = dist;
+                    clusterInd = m;
+                }
             }
+            _clusterBuffer[clusterInd].push(_data[d]);
         }
-        clusters[clusterInd].push(data[d]);
+        return _clusterBuffer;
     }
-    return clusters;
+
+    function V3Group(_clusterBuffer: Mat.Matrix[][], _data:Mat.Matrix[], _means:Mat.Matrix[]):Mat.Matrix[][]{
+        for (let d = 0; d < _data.length; d++) {
+            let [maxDist, clusterInd] = [Number.MAX_VALUE, -1]
+            for (let m = 0; m < _means.length; m++) {
+                let dist = V3.DiffNormSquare(_data[d], _means[m]);
+                if (dist < maxDist) {
+                    maxDist = dist;
+                    clusterInd = m;
+                }
+            }
+            _clusterBuffer[clusterInd].push(_data[d]);
+        }
+        return _clusterBuffer;
+    }
+    let fnGroup = (isV3)? V3Group: GenericGroup;
+    return fnGroup(clusters, data, means);
 }
+

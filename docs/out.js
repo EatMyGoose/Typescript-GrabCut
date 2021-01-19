@@ -1292,7 +1292,57 @@ define("DinicFlowSolver", ["require", "exports", "Utility", "Collections"], func
         };
     };
 });
-define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections", "ConvergenceChecker"], function (require, exports, Util, Mat, Collections_2, Conv) {
+define("V3", ["require", "exports", "Matrix"], function (require, exports, M) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.isV3 = exports.DiffNormSquare = exports.Norm = exports.NormSquare = exports.AddInPlace = exports.SubInPlace = exports.Sub = void 0;
+    function Sub(v1, v2) {
+        var res = new Array(3);
+        res[0] = [v1[0][0] - v2[0][0]];
+        res[1] = [v1[1][0] - v2[1][0]];
+        res[2] = [v1[2][0] - v2[2][0]];
+        return res;
+    }
+    exports.Sub = Sub;
+    function SubInPlace(acc, v2) {
+        acc[0][0] -= v2[0][0];
+        acc[1][0] -= v2[1][0];
+        acc[2][0] -= v2[2][0];
+    }
+    exports.SubInPlace = SubInPlace;
+    function AddInPlace(acc, v2) {
+        acc[0][0] += v2[0][0];
+        acc[1][0] += v2[1][0];
+        acc[2][0] += v2[2][0];
+    }
+    exports.AddInPlace = AddInPlace;
+    function NormSquare(vec) {
+        var e0 = vec[0][0];
+        var e1 = vec[1][0];
+        var e2 = vec[2][0];
+        return e0 * e0 + e1 * e1 + e2 * e2;
+    }
+    exports.NormSquare = NormSquare;
+    function Norm(vec) {
+        var e0 = vec[0][0];
+        var e1 = vec[1][0];
+        var e2 = vec[2][0];
+        return Math.sqrt(e0 * e0 + e1 * e1 + e2 * e2);
+    }
+    exports.Norm = Norm;
+    function DiffNormSquare(v1, v2) {
+        var e0 = v1[0][0] - v2[0][0];
+        var e1 = v1[1][0] - v2[1][0];
+        var e2 = v1[2][0] - v2[2][0];
+        return e0 * e0 + e1 * e1 + e2 * e2;
+    }
+    exports.DiffNormSquare = DiffNormSquare;
+    function isV3(v) {
+        return M.IsColumnVector(v) && M.Rows(v) == 3;
+    }
+    exports.isV3 = isV3;
+});
+define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections", "ConvergenceChecker", "V3"], function (require, exports, Util, Mat, Collections_2, Conv, V3) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.Fit = exports.Initializer = exports.KMeansResult = void 0;
@@ -1303,18 +1353,34 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections", "Con
             this.means = _means;
         }
         KMeansResult.prototype.MeanDistanceToCluster = function () {
-            var _this = this;
             if (this.meanDist >= 0)
                 return this.meanDist;
             var nElems = Util.Sum(this.clusters.map(function (c) { return c.length; }));
-            var distAcc = 0;
-            this.clusters.forEach(function (c, ind) {
-                for (var i = 0; i < c.length; i++) {
-                    var diff = Mat.Sub(c[i], _this.means[ind]);
-                    distAcc += Mat.Norm(diff);
-                }
-            });
-            this.meanDist = distAcc / nElems;
+            var first = this.means[0];
+            var isV3 = V3.isV3(first);
+            function GenericDist(_means, _clusters) {
+                var distAcc = 0;
+                _clusters.forEach(function (c, ind) {
+                    var clusterMean = _means[ind];
+                    for (var i = 0; i < c.length; i++) {
+                        var diff = Mat.Sub(c[i], clusterMean);
+                        distAcc += Mat.Norm(diff);
+                    }
+                });
+                return distAcc / nElems;
+            }
+            function V3Dist(_means, _clusters) {
+                var distAcc = 0;
+                _clusters.forEach(function (c, ind) {
+                    var clusterMean = _means[ind];
+                    for (var i = 0; i < c.length; i++) {
+                        distAcc += Math.sqrt(V3.DiffNormSquare(c[i], clusterMean));
+                    }
+                });
+                return distAcc / nElems;
+            }
+            var fnDist = (isV3) ? V3Dist : GenericDist;
+            this.meanDist = fnDist(this.means, this.clusters);
             return this.meanDist;
         };
         return KMeansResult;
@@ -1332,12 +1398,15 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections", "Con
         var centres = [data[firstIndex]];
         var prob = new Array(data.length);
         var cumProb = new Array(data.length);
+        var isV3 = V3.isV3(data[0]);
+        var fnDiffSquare = (isV3) ?
+            V3.DiffNormSquare :
+            function (v1, v2) { return Mat.NormSquare(Mat.Sub(v1, v2)); };
         while (centres.length < nClusters) {
             for (var i = 0; i < data.length; i++) {
                 var minDist = Number.MAX_VALUE;
                 for (var c = 0; c < centres.length; c++) {
-                    var diff = Mat.Sub(data[i], centres[c]);
-                    var dist = Mat.NormSquare(diff);
+                    var dist = fnDiffSquare(data[i], centres[c]);
                     if (dist < minDist) {
                         minDist = dist;
                     }
@@ -1379,6 +1448,7 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections", "Con
         var _b = Mat.Dimensions(data[0]), nRows = _b[0], nCols = _b[1];
         var uniqueClusters;
         var clusterCentres;
+        var isV3 = V3.isV3(data[0]);
         if (init == Initializer.random) {
             clusterCentres = Util.UniqueRandom(nClusters, data.length - 1).map(function (i) { return data[i]; });
             var interClusterDistances = clusterCentres.map(function (c) {
@@ -1394,16 +1464,20 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections", "Con
         var conv = new Conv.ConvergenceChecker(minPercentChange, nIter);
         var result;
         var clusters = GroupToNearestMean(data, clusterCentres);
-        do {
+        var _loop_1 = function () {
+            var fnAdd = (isV3) ? V3.AddInPlace : Mat.AddInPlace;
             clusterCentres = clusters.map(function (c) {
                 var acc = Mat.CreateMatrix(nRows, nCols);
                 for (var i = 0; i < c.length; i++) {
-                    Mat.AddInPlace(acc, c[i]);
+                    fnAdd(acc, c[i]);
                 }
                 return Mat.Scale(1 / c.length, acc);
             });
             clusters = GroupToNearestMean(data, clusterCentres);
             result = new KMeansResult(clusters, clusterCentres);
+        };
+        do {
+            _loop_1();
         } while (!conv.hasConverged(result.MeanDistanceToCluster()));
         console.log("KMeans exited at " + conv.getCurrentIter());
         return result;
@@ -1412,19 +1486,38 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections", "Con
     function GroupToNearestMean(data, means) {
         var nClusters = means.length;
         var clusters = Util.FillObj(nClusters, function () { return []; });
-        for (var d = 0; d < data.length; d++) {
-            var _a = [Number.MAX_VALUE, -1], maxDist = _a[0], clusterInd = _a[1];
-            for (var m = 0; m < nClusters; m++) {
-                var diff = Mat.Sub(data[d], means[m]);
-                var dist = Mat.NormSquare(diff);
-                if (dist < maxDist) {
-                    maxDist = dist;
-                    clusterInd = m;
+        var isV3 = V3.isV3(data[0]);
+        function GenericGroup(_clusterBuffer, _data, _means) {
+            for (var d = 0; d < _data.length; d++) {
+                var _a = [Number.MAX_VALUE, -1], maxDist = _a[0], clusterInd = _a[1];
+                for (var m = 0; m < _means.length; m++) {
+                    var diff = Mat.Sub(_data[d], _means[m]);
+                    var dist = Mat.NormSquare(diff);
+                    if (dist < maxDist) {
+                        maxDist = dist;
+                        clusterInd = m;
+                    }
                 }
+                _clusterBuffer[clusterInd].push(_data[d]);
             }
-            clusters[clusterInd].push(data[d]);
+            return _clusterBuffer;
         }
-        return clusters;
+        function V3Group(_clusterBuffer, _data, _means) {
+            for (var d = 0; d < _data.length; d++) {
+                var _a = [Number.MAX_VALUE, -1], maxDist = _a[0], clusterInd = _a[1];
+                for (var m = 0; m < _means.length; m++) {
+                    var dist = V3.DiffNormSquare(_data[d], _means[m]);
+                    if (dist < maxDist) {
+                        maxDist = dist;
+                        clusterInd = m;
+                    }
+                }
+                _clusterBuffer[clusterInd].push(_data[d]);
+            }
+            return _clusterBuffer;
+        }
+        var fnGroup = (isV3) ? V3Group : GenericGroup;
+        return fnGroup(clusters, data, means);
     }
 });
 define("GMMCluster", ["require", "exports", "Matrix"], function (require, exports, M) {
@@ -1557,7 +1650,7 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
             if (Mat.IsRowVector(rawData[0])) {
                 data = rawData.map(function (m) { return Mat.Transpose(m); });
             }
-            console.log("GMM:Init Clusters");
+            console.time("GMM:Init Clusters");
             var newClusters;
             switch (init) {
                 case Initializer.random: {
@@ -1565,17 +1658,22 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
                     break;
                 }
                 case Initializer.KMeansPlusPlus: {
+                    console.time("KMeans");
                     var kMeansResult = KM.Fit(data, nClusters, 20, 1, KM.Initializer.KMeansPlusPlus);
                     var nonEmptyClusters = kMeansResult.clusters.filter(function (c) { return c.length > 0; });
+                    console.timeEnd("KMeans");
+                    console.time("Points2GMM");
                     newClusters = nonEmptyClusters.map(function (c) { return GMM.Points2GMMCluster(c, data.length); });
+                    console.timeEnd("Points2GMM");
                     break;
                 }
             }
+            console.timeEnd("GMM:Init Clusters");
             console.log("GMM:EM-start");
             var conv = new Conv.ConvergenceChecker(MIN_PERCENT_CHANGE, MAX_ITER);
             var logProb;
             do {
-                newClusters = this.EM(data, newClusters);
+                newClusters = EM(data, newClusters);
                 logProb = GMM.LogLikelihood(data, newClusters);
                 console.log("Iteration:" + conv.getCurrentIter() + ", logProb:" + logProb);
             } while (!conv.hasConverged(logProb));
@@ -1595,74 +1693,6 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
             var equalWeightage = 1 / nClusters;
             return selectedIndices.map(function (i) {
                 return C.ClusterFactory(equalWeightage, data[i], Mat.Identity(nDim));
-            });
-        };
-        GMM.prototype.EM = function (data, initialClusters) {
-            var ReplaceZeroes = function (arr, lowerThreshold) {
-                for (var i = 0; i < arr.length; i++) {
-                    if (arr[i] < lowerThreshold)
-                        arr[i] = lowerThreshold;
-                }
-            };
-            if (data.length == 0) {
-                throw new Error("Empty data set");
-            }
-            var nDataPoints = data.length;
-            var nDims = Mat.Rows(data[0]);
-            var nClusters = initialClusters.length;
-            var prob = Mat.CreateMatrix(nClusters, nDataPoints);
-            var probSum = Util.Fill(data.length, 0);
-            for (var c = 0; c < nClusters; c++) {
-                var currentCluster = initialClusters[c];
-                for (var d = 0; d < nDataPoints; d++) {
-                    var p = currentCluster.Likelihood(data[d]);
-                    if (isNaN(p)) {
-                        console.log(currentCluster);
-                        throw new Error("NaN");
-                    }
-                    prob[c][d] = p;
-                    probSum[d] += p;
-                }
-            }
-            var eps = 1e-9;
-            ReplaceZeroes(probSum, eps);
-            var resp = Mat.CreateMatrix(nClusters, nDataPoints);
-            var clusterResp = Util.Fill(nClusters, 0);
-            for (var c = 0; c < nClusters; c++) {
-                for (var d = 0; d < nDataPoints; d++) {
-                    var r = prob[c][d] / probSum[d];
-                    resp[c][d] = r;
-                    clusterResp[c] += r;
-                }
-            }
-            ReplaceZeroes(clusterResp, eps);
-            var clusterSum = Util
-                .FillObj(nClusters, function () { return Mat.CreateMatrix(nDims, 1); });
-            for (var c = 0; c < nClusters; c++) {
-                for (var d = 0; d < nDataPoints; d++) {
-                    var contribution = Mat.Scale(resp[c][d], data[d]);
-                    Mat.AddInPlace(clusterSum[c], contribution);
-                }
-                if (Mat.Any(clusterSum[c], function (e) { return isNaN(e); })) {
-                    throw new Error("cluster sum NaN");
-                }
-            }
-            var means = clusterSum
-                .map(function (sum, index) { return Mat.Scale(1 / clusterResp[index], sum); });
-            var weights = clusterResp.map(function (x) { return x / nDataPoints; });
-            var covAcc = Util
-                .FillObj(nClusters, function () { return Mat.CreateMatrix(nDims, nDims); });
-            for (var c = 0; c < nClusters; c++) {
-                for (var d = 0; d < nDataPoints; d++) {
-                    var diff = Mat.Sub(data[d], means[c]);
-                    var diffTransposed = Mat.Transpose(diff);
-                    var contribution = Mat.Scale(resp[c][d], Mat.Mul(diff, diffTransposed));
-                    Mat.AddInPlace(covAcc[c], contribution);
-                }
-            }
-            var covariances = covAcc.map(function (cov, ind) { return Mat.Scale(1 / clusterResp[ind], cov); });
-            return means.map(function (_, cIndex) {
-                return C.ClusterFactory(weights[cIndex], means[cIndex], covariances[cIndex]);
             });
         };
         GMM.labelledDataToGMMs = function (fgLabels, fgGroupSize, bgLabels, bgGroupSize, labels, data) {
@@ -1710,8 +1740,130 @@ define("GMM", ["require", "exports", "Utility", "Matrix", "KMeans", "Convergence
         return GMM;
     }());
     exports.GMM = GMM;
+    function EM(data, initialClusters) {
+        var ReplaceZeroes = function (arr, lowerThreshold) {
+            for (var i = 0; i < arr.length; i++) {
+                if (arr[i] < lowerThreshold)
+                    arr[i] = lowerThreshold;
+            }
+        };
+        if (data.length == 0) {
+            throw new Error("Empty data set");
+        }
+        console.time("EM-init");
+        var nDataPoints = data.length;
+        var nDims = Mat.Rows(data[0]);
+        var nClusters = initialClusters.length;
+        var prob = Mat.CreateMatrix(nClusters, nDataPoints);
+        var probSum = Util.Fill(data.length, 0);
+        console.time("EM-Likelihood-eval");
+        for (var c = 0; c < nClusters; c++) {
+            var currentCluster = initialClusters[c];
+            for (var d = 0; d < nDataPoints; d++) {
+                var p = currentCluster.Likelihood(data[d]);
+                if (isNaN(p)) {
+                    console.log(currentCluster);
+                    throw new Error("NaN");
+                }
+                prob[c][d] = p;
+                probSum[d] += p;
+            }
+        }
+        console.timeEnd("EM-Likelihood-eval");
+        var eps = 1e-9;
+        ReplaceZeroes(probSum, eps);
+        var resp = Mat.CreateMatrix(nClusters, nDataPoints);
+        var clusterResp = Util.Fill(nClusters, 0);
+        for (var c = 0; c < nClusters; c++) {
+            for (var d = 0; d < nDataPoints; d++) {
+                var r = prob[c][d] / probSum[d];
+                resp[c][d] = r;
+                clusterResp[c] += r;
+            }
+        }
+        ReplaceZeroes(clusterResp, eps);
+        console.timeEnd("EM-init");
+        var clusterSum = Util
+            .FillObj(nClusters, function () { return Mat.CreateMatrix(nDims, 1); });
+        console.time("EM-Resp-Sum");
+        var fnSumResp = (nDims == 3) ? SumResponsibilityV3 : SumResponsibilityGeneric;
+        fnSumResp(data, clusterSum, resp, nClusters);
+        for (var c = 0; c < nClusters; c++) {
+            if (Mat.Any(clusterSum[c], function (e) { return isNaN(e); })) {
+                throw new Error("cluster sum NaN");
+            }
+        }
+        console.timeEnd("EM-Resp-Sum");
+        var means = clusterSum
+            .map(function (sum, index) { return Mat.Scale(1 / clusterResp[index], sum); });
+        var weights = clusterResp.map(function (x) { return x / nDataPoints; });
+        var covAcc = Util.FillObj(nClusters, function () { return Mat.CreateMatrix(nDims, nDims); });
+        console.time("EM-cov-cal");
+        var fnCovSum = (nDims == 3) ? sumCovarianceV3 : sumCovarianceGeneric;
+        fnCovSum(data, nClusters, means, resp, covAcc);
+        console.timeEnd("EM-cov-cal");
+        var covariances = covAcc.map(function (cov, ind) { return Mat.Scale(1 / clusterResp[ind], cov); });
+        return means.map(function (_, cIndex) {
+            return C.ClusterFactory(weights[cIndex], means[cIndex], covariances[cIndex]);
+        });
+    }
+    function SumResponsibilityGeneric(_data, _clusterSum, _resp, _nClusters) {
+        for (var c = 0; c < _nClusters; c++) {
+            for (var d = 0; d < _data.length; d++) {
+                var contribution = Mat.Scale(_resp[c][d], _data[d]);
+                Mat.AddInPlace(_clusterSum[c], contribution);
+            }
+        }
+    }
+    function SumResponsibilityV3(_data, _clusterSum, _resp, _nClusters) {
+        for (var c = 0; c < _nClusters; c++) {
+            for (var d = 0; d < _data.length; d++) {
+                var dest = _clusterSum[c];
+                var scale = _resp[c][d];
+                var data = _data[d];
+                dest[0][0] += scale * data[0][0];
+                dest[1][0] += scale * data[1][0];
+                dest[2][0] += scale * data[2][0];
+            }
+        }
+    }
+    function sumCovarianceGeneric(_data, _nClusters, _means, _resp, _covAcc) {
+        for (var c = 0; c < _nClusters; c++) {
+            for (var d = 0; d < _data.length; d++) {
+                var diff = Mat.Sub(_data[d], _means[c]);
+                var diffTransposed = Mat.Transpose(diff);
+                var contribution = Mat.Scale(_resp[c][d], Mat.Mul(diff, diffTransposed));
+                Mat.AddInPlace(_covAcc[c], contribution);
+            }
+        }
+    }
+    function sumCovarianceV3(_data, _nClusters, _means, _resp, _covAcc) {
+        for (var c = 0; c < _nClusters; c++) {
+            for (var d = 0; d < _data.length; d++) {
+                var v3 = _data[d];
+                var m = _means[c];
+                var e0 = v3[0][0] - m[0][0];
+                var e1 = v3[1][0] - m[1][0];
+                var e2 = v3[2][0] - m[2][0];
+                var scale = _resp[c][d];
+                var dest = _covAcc[c];
+                var r0 = dest[0];
+                r0[0] += scale * e0 * e0;
+                r0[1] += scale * e0 * e1;
+                r0[2] += scale * e0 * e2;
+                var r1 = dest[1];
+                r1[0] += scale * e1 * e0;
+                r1[1] += scale * e1 * e1;
+                r1[2] += scale * e1 * e2;
+                var r2 = dest[2];
+                r2[0] += scale * e2 * e0;
+                r2[1] += scale * e2 * e1;
+                r2[2] += scale * e2 * e2;
+            }
+        }
+    }
 });
-define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", "ConvergenceChecker"], function (require, exports, GMM, BK, Mat, Util, Conv) {
+define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", "ConvergenceChecker", "V3"], function (require, exports, GMM, BK, Mat, Util, Conv, V3) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.GrabCut = exports.Trimap = void 0;
@@ -1922,6 +2074,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             return [fg, bg];
         };
         GrabCut.GeneratePixel2PixelGraph = function (img, network, cohesionFactor) {
+            var isV3 = V3.isV3(img[0][0]);
             var height = img.length;
             var width = img[0].length;
             {
@@ -1941,6 +2094,9 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             };
             var nCount = 0;
             var diffAcc = 0;
+            var fnDiffSquare = (isV3) ?
+                V3.DiffNormSquare :
+                function (v1, v2) { return Mat.NormSquare(Mat.Sub(v1, v2)); };
             for (var r = 0; r < height; r++) {
                 for (var c = 0; c < width; c++) {
                     var currentPixel = img[r][c];
@@ -1949,7 +2105,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
                         if (!validNeighbour)
                             continue;
                         var neighbouringPixel = img[nR][nC];
-                        var diffSquare = Mat.NormSquare(Mat.Sub(currentPixel, neighbouringPixel));
+                        var diffSquare = fnDiffSquare(currentPixel, neighbouringPixel);
                         diffAcc += diffSquare;
                         nCount++;
                     }
@@ -1965,7 +2121,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
                         if (!validNeighbour)
                             continue;
                         var neighbourIndex = GrabCut.GetArrayIndex(nR, nC, width);
-                        var diffSquare = Mat.NormSquare(Mat.Sub(img[r][c], img[nR][nC]));
+                        var diffSquare = fnDiffSquare(img[r][c], img[nR][nC]);
                         var exponent = -beta * diffSquare;
                         var capacity = coeff[i] * Math.exp(exponent);
                         if (isNaN(capacity)) {
