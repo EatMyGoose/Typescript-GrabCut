@@ -14,15 +14,18 @@ export class PreviewView{
     private img: HTMLImageElement;
     private model: Model;
     private download: HTMLAnchorElement;
+    private featherMask: HTMLInputElement;
 
     private editorView: CanvasView;
 
-    constructor(img:HTMLImageElement, alphaBtn: HTMLButtonElement, imageBtn:HTMLButtonElement, download: HTMLAnchorElement){
+    constructor(img:HTMLImageElement, alphaBtn: HTMLButtonElement, imageBtn:HTMLButtonElement, download: HTMLAnchorElement, featherMask:HTMLInputElement){
         this.img = img;
         this.download = download;
+        this.featherMask = featherMask;
 
         alphaBtn.addEventListener("click", () => this.SwitchView(SelectedView.alpha));
         imageBtn.addEventListener("click", () => this.SwitchView(SelectedView.image));
+        featherMask.addEventListener("change", () => this.Draw());
     }
 
     AttachEditorView(this:PreviewView, editorView:CanvasView){
@@ -35,8 +38,9 @@ export class PreviewView{
 
     Draw():void{
         let showAlphaMask = this.currentView == SelectedView.alpha;
+        let featherMask = this.featherMask.checked;
 
-        let src = this.model.GetCroppedImageURL(showAlphaMask);
+        let src = this.model.GetCroppedImageURL(showAlphaMask, featherMask);
         this.img.src = (src != null)? src : IMUtil.EmptyImage(); 
 
         if(src != null){
@@ -51,7 +55,7 @@ export class PreviewView{
         this.img.style.height = `${height}px`;
     }
 
-    private SwitchView(this:PreviewView, view:SelectedView):void{
+    private SwitchView(view:SelectedView):void{
         if(this.currentView != view){
             this.currentView = view;
             this.Draw();

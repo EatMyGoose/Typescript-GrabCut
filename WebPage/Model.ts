@@ -11,13 +11,18 @@ import * as Mat from "../Matrix";
 export const FGColour = new ImgUtil.RGBA(255, 0, 0, 255); //Red
 export const BGColour = new ImgUtil.RGBA(0, 0, 255, 255); //Blue
 
+interface CroppedImageSet{
+    bitmap:string,
+    mask:string,
+}
+
 export class Model {
     private originalImage: HTMLImageElement;
     private originalImageData: ImageData;
 
     //Stores the result of the cropped image in a data URL
-    private croppedImage: string = null;
-    private croppedImageAlpha: string = null;
+    private croppedUnfeathered:CroppedImageSet = null;
+    private croppedFeathered:CroppedImageSet = null;
 
     private canvasView: CanvasView;
     private preview: PreviewView;
@@ -85,8 +90,8 @@ export class Model {
 
     SetImage(this: Model, imageURL: string): void {
         this.ClearSelection();
-        this.croppedImage = null;
-        this.croppedImageAlpha = null;
+        this.croppedUnfeathered = null;
+        this.croppedFeathered = null;
 
         let img = new Image();
         let fileURL = imageURL;
@@ -131,11 +136,9 @@ export class Model {
         return this.originalImage;
     }
 
-    GetCroppedImageURL(alphaOnly: boolean): string {
-        if (alphaOnly)
-            return this.croppedImageAlpha;
-        else
-            return this.croppedImage;
+    GetCroppedImageURL(alphaOnly: boolean, feathered:boolean): string {
+        let dataSet = feathered? this.croppedFeathered : this.croppedUnfeathered;    
+        return alphaOnly? dataSet.mask : dataSet.bitmap;
     }
 
     private GetTrimap() {
@@ -182,8 +185,8 @@ export class Model {
         cohesionFactor: number): void {
 
         let [width, height] = this.GetImageDim();
-        let img = ImgUtil.ImageData2Mat(this.originalImageData);
-        let cut = new Cut.GrabCut(img);
+        let img:Mat.Matrix[] = ImgUtil.ImgData2_1DMat(this.originalImageData);
+        let cut = new Cut.GrabCut(img, width, height);
         let trimap = this.GetTrimap();
 
         cut.SetTrimap(trimap, width, height);
@@ -195,10 +198,17 @@ export class Model {
             nBGClusters: nBGClusters});
 
         let mask = cut.GetAlphaMask();
-        //this.croppedImage = ImgUtil.ApplyAlphaMask(this.originalImageData, mask);
-        let alphaApplied = ImgUtil.ApplyAlphaMaskToImgData(this.originalImageData, mask);
-        this.croppedImage = ImgUtil.ImgData2URL(alphaApplied);
-        this.croppedImageAlpha = ImgUtil.CreateBWImage(mask);
+
+        this.croppedUnfeathered = {
+            bitmap: ImgUtil.ImgData2URL(ImgUtil.ApplyAlphaMaskToImgData(this.originalImageData, mask)),
+            mask: ImgUtil.CreateBWImage(mask),
+        };
+
+        let featheredMask = ImgUtil.FeatherMask(mask);
+        this.croppedFeathered = {
+            bitmap: ImgUtil.ImgData2URL(ImgUtil.ApplyAlphaMaskToImgData(this.originalImageData, featheredMask)),
+            mask: ImgUtil.CreateBWImage(featheredMask),
+        };
 
         this.preview.Draw();
     }

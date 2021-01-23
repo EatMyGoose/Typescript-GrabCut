@@ -95,25 +95,23 @@ export function Trimap2BW(trimap:Trimap[][]):string{
     return canvas.SetImageData(imgData);
 }
 
-//Converts the 0-255 RGBA representation to 0-1 RGB column vectors 
-export function ImageData2Mat(data: ImageData): Mat.Matrix[][] {
-    let result: Mat.Matrix[][] = Util.Fill2DObj<Mat.Matrix>(data.height, data.width, () => Mat.CreateMatrix(3, 1));
+//Converts the 0-255 RGBA representation to 0-255 RGB column vectors 
+export function ImgData2_1DMat(data: ImageData): Mat.Matrix[] {
+    let nPixels = data.width * data.height;
+    let result: Mat.Matrix[] = Util.FillObj<Mat.Matrix>(nPixels, () => Mat.CreateMatrix(3,1));
     let buffer = data.data;
-    let coeff = 1;
 
-    for (let r = 0; r < data.height; r++) {
-        let rowOffset = r * data.width;
-        for (let c = 0; c < data.width; c++) {
-            let ind: number = 4 * (rowOffset + c);
-            let pixel = result[r][c];
-            pixel[0][0] = buffer[ind + 0] * coeff; //R
-            pixel[1][0] = buffer[ind + 1] * coeff; //G
-            pixel[2][0] = buffer[ind + 2] * coeff; //B
-            //alpha will be ignored
-        }
+    for(let i = 0; i < nPixels; i++){
+        let ind = 4 * i;
+        let pixel = result[i];
+        pixel[0][0] = buffer[ind + 0]; //R
+        pixel[1][0] = buffer[ind + 1]; //G
+        pixel[2][0] = buffer[ind + 2]; //B
     }
+
     return result;
 }
+
 
 //Creates a new image by applying the alpha mask to the source image
 export function ApplyAlphaMask(img: ImageData, alpha: number[][]): string {
@@ -132,6 +130,62 @@ export function ApplyAlphaMask(img: ImageData, alpha: number[][]): string {
 
     return c.SetImageData(bufferData);
 }
+
+export function FeatherMask(alpha:number[][]): number[][]{
+    let [width, height] = [alpha[0].length, alpha.length];
+    let feathered:number[][] = Mat.CreateMatrix(height, width);
+    let threshold = 0.1;
+
+    let meanKernel = Util.Fill2DObj<number>(3,3, () => 1/9);
+
+    for(let r = 0; r < height; r++){
+        for(let c = 0; c < width; c++){
+            if(alpha[r][c] < threshold){
+                feathered[r][c] = alpha[r][c];
+            }else{
+                feathered[r][c] = ConvolutionOnPoint(r, c, alpha, height, width, meanKernel, 3, 3, 1, 1);
+            }
+        }
+    }
+    return feathered;
+}
+
+export function Apply2DConvolution(src:Mat.Matrix, kernel:Mat.Matrix):Mat.Matrix{
+    let [nRows, nCols] = Mat.Dimensions(src);
+    let [kRows, kCols] = Mat.Dimensions(kernel);
+
+    let [kernelMidRow, kernelMidCol] =  [Math.floor(kRows / 2), Math.floor(kCols / 2)];
+
+    let result = Mat.CreateMatrix(nRows, nCols);
+
+    for(let r = 0; r < nRows; r++){
+        for(let c = 0; c < nCols; c++){
+            result[r][c] = ConvolutionOnPoint(r,c, src, nRows, nCols, kernel, kRows, kCols, kernelMidRow, kernelMidCol);        
+        }
+    } 
+
+    return null;
+} 
+
+function ConvolutionOnPoint(
+    targetRow:number, targetCol:number,
+    src:Mat.Matrix, nRows:number, nCols:number, 
+    kernel:Mat.Matrix, kRows:number, kCols:number, kMidRowIndex:number, kMidColIndex:number):number{ 
+    
+    let acc = 0;
+    for(let r = 0; r < kRows; r++){
+        let destR = targetRow + r - kMidRowIndex;
+        if(destR < 0 || destR >= nRows) continue; //Out of bounds
+        for(let c = 0; c < kCols; c++){
+            let destC = targetCol + c - kMidColIndex;
+            if(destC < 0 || destC >= nCols) continue; //Out of bounds
+            acc += kernel[r][c] * src[destR][destC];
+        }
+    }
+    return acc;
+}
+
+
 
 //BW image from an alpha image
 export function CreateBWImage(values: number[][]): string {

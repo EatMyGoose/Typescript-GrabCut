@@ -1874,28 +1874,20 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
         Trimap[Trimap["Unknown"] = 2] = "Unknown";
     })(Trimap = exports.Trimap || (exports.Trimap = {}));
     var GrabCut = (function () {
-        function GrabCut(image) {
+        function GrabCut(image, width, height) {
             this.fgGMM = new GMM.GMM();
             this.bgGMM = new GMM.GMM();
-            this.height = image.length;
-            this.width = image[0].length;
-            this.img = image;
-            var nPixels = this.width * this.height;
+            this.height = height;
+            this.width = width;
+            var nPixels = width * height;
             this.matte = new Uint8Array(nPixels);
             this.trimap = new Uint8Array(nPixels);
-            var flattenedImg = new Array(this.height * this.width);
-            for (var r = 0; r < this.height; r++) {
-                for (var c = 0; c < this.width; c++) {
-                    var linearInd = GrabCut.GetArrayIndex(r, c, this.width);
-                    flattenedImg[linearInd] = image[r][c];
-                }
-            }
-            this.flattenedImg = flattenedImg;
+            this.flattenedImg = image;
         }
         GrabCut.prototype.SetTrimap = function (trimap, width, height) {
             for (var r = 0; r < height; r++) {
                 for (var c = 0; c < width; c++) {
-                    var ind = GrabCut.GetArrayIndex(r, c, width);
+                    var ind = GetArrayIndex(r, c, width);
                     this.trimap[ind] = trimap[r][c];
                 }
             }
@@ -1905,7 +1897,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             for (var i = 0; i < this.trimap.length; i++) {
                 this.matte[i] = (this.trimap[i] == Trimap.Background) ? Trimap.Background : Trimap.Foreground;
             }
-            var _a = GrabCut.SegregatePixels(this.img, this.matte, 0, 0, this.height, this.width), fgPixels = _a[0], bgPixels = _a[1];
+            var _a = GrabCut.SegregatePixels(this.flattenedImg, this.matte, 0, 0, this.height, this.width), fgPixels = _a[0], bgPixels = _a[1];
             var GMM_N_ITER = 5;
             var MIN_PERCENT_CHANGE = 1;
             console.time("Grabcut-GM");
@@ -1919,7 +1911,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             var flowNetwork = new BK.BKNetwork();
             var maxFlowSolver = BK.BKMaxflow;
             console.time("Grabcut-Pixel Graph");
-            var _b = GrabCut.GeneratePixel2PixelGraph(this.img, flowNetwork, cohesionFactor), network = _b[0], maxCapacity = _b[1];
+            var _b = GrabCut.GeneratePixel2PixelGraph(this.flattenedImg, this.width, this.height, flowNetwork, cohesionFactor), network = _b[0], maxCapacity = _b[1];
             var _c = GrabCut.InitSourceAndSink(network, this.width, this.height), srcNode = _c[0], sinkNode = _c[1];
             console.timeEnd("Grabcut-Pixel Graph");
             var conv = new Conv.ConvergenceChecker(tolerancePercent, nIter);
@@ -1941,14 +1933,14 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
                     return [validIndices, nonEmptyGroups];
                 };
                 console.time("Graphcut-Graph GMM-recomputation");
-                var _d = GrabCut.LabelPixels(this.matte, this.height, this.width, this.fgGMM, this.bgGMM, this.img, labels), fgInd = _d[0], fgGroupSizes = _d[1], bgInd = _d[2], bgGroupSizes = _d[3];
+                var _d = GrabCut.LabelPixels(this.matte, this.height, this.width, this.fgGMM, this.bgGMM, this.flattenedImg, labels), fgInd = _d[0], fgGroupSizes = _d[1], bgInd = _d[2], bgGroupSizes = _d[3];
                 var _e = filterEmptyGroups(fgInd, fgGroupSizes), validFgInd = _e[0], validFgGroupSizes = _e[1];
                 var _f = filterEmptyGroups(bgInd, bgGroupSizes), validBgInd = _f[0], validBgGroupSizes = _f[1];
                 _a = GMM.GMM.labelledDataToGMMs(validFgInd, validFgGroupSizes, validBgInd, validBgGroupSizes, labels, this.flattenedImg), this.fgGMM = _a[0], this.bgGMM = _a[1];
                 console.timeEnd("Graphcut-Graph GMM-recomputation");
                 console.log("fg clusters:" + this.fgGMM.clusters.length + ", bg clusters:" + this.bgGMM.clusters.length);
                 console.time("Grabcut-Graph source sink update");
-                GrabCut.UpdateSourceAndSink(network, maxCapacity, this.fgGMM, this.bgGMM, this.img, this.trimap, srcNode, sinkNode);
+                GrabCut.UpdateSourceAndSink(network, maxCapacity, this.fgGMM, this.bgGMM, this.flattenedImg, this.width, this.height, this.trimap, srcNode, sinkNode);
                 console.timeEnd("Grabcut-Graph source sink update");
                 console.time("Grabcut-Graph flow reset");
                 network.ResetFlow();
@@ -1971,7 +1963,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
         GrabCut.prototype.GetAlphaMask = function () {
             var alpha = Mat.CreateMatrix(this.height, this.width);
             for (var i = 0; i < this.matte.length; i++) {
-                var _a = GrabCut.get2DArrayIndex(i, this.width), r = _a[0], c = _a[1];
+                var _a = get2DArrayIndex(i, this.width), r = _a[0], c = _a[1];
                 alpha[r][c] = (this.matte[i] == Trimap.Foreground) ? 1.0 : 0.0;
             }
             return alpha;
@@ -1992,9 +1984,9 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             var bot = top + height;
             for (var r = top; r < bot; r++) {
                 for (var c = left; c < right; c++) {
-                    var matteIndex = GrabCut.GetArrayIndex(r, c, width);
-                    var currentPixel = img[r][c];
-                    if (matte[matteIndex] == Trimap.Foreground) {
+                    var linearIndex = GetArrayIndex(r, c, width);
+                    var currentPixel = img[linearIndex];
+                    if (matte[linearIndex] == Trimap.Foreground) {
                         fgPixels.push(currentPixel);
                     }
                     else {
@@ -2023,9 +2015,9 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             };
             for (var r = 0; r < height; r++) {
                 for (var c = 0; c < width; c++) {
-                    var linearIndex = GrabCut.GetArrayIndex(r, c, width);
+                    var linearIndex = GetArrayIndex(r, c, width);
                     var pixelIsFG = matte[linearIndex] == Trimap.Foreground;
-                    var currentPixel = img[r][c];
+                    var currentPixel = img[linearIndex];
                     if (pixelIsFG) {
                         var likelihoods = fgGMM.Predict(currentPixel).likelihoods;
                         var fgGroup = maxIndex(likelihoods);
@@ -2073,10 +2065,8 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             }
             return [fg, bg];
         };
-        GrabCut.GeneratePixel2PixelGraph = function (img, network, cohesionFactor) {
-            var isV3 = V3.isV3(img[0][0]);
-            var height = img.length;
-            var width = img[0].length;
+        GrabCut.GeneratePixel2PixelGraph = function (img, width, height, network, cohesionFactor) {
+            var isV3 = V3.isV3(img[0]);
             {
                 var nPixels = height * width;
                 for (var i = 0; i < nPixels; i++) {
@@ -2089,7 +2079,7 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
                 var offset = neighbours[neighbourInd];
                 var nR = r + offset[0];
                 var nC = c + offset[1];
-                var validNeighbour = GrabCut.WithinBounds(nR, nC, width, height);
+                var validNeighbour = WithinBounds(nR, nC, width, height);
                 return [validNeighbour, nR, nC];
             };
             var nCount = 0;
@@ -2099,12 +2089,14 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
                 function (v1, v2) { return Mat.NormSquare(Mat.Sub(v1, v2)); };
             for (var r = 0; r < height; r++) {
                 for (var c = 0; c < width; c++) {
-                    var currentPixel = img[r][c];
+                    var linearInd = GetArrayIndex(r, c, width);
+                    var currentPixel = img[linearInd];
                     for (var i = 0; i < neighbours.length; i++) {
                         var _a = GetNeighbour(r, c, i), validNeighbour = _a[0], nR = _a[1], nC = _a[2];
                         if (!validNeighbour)
                             continue;
-                        var neighbouringPixel = img[nR][nC];
+                        var neighbourInd = GetArrayIndex(nR, nC, width);
+                        var neighbouringPixel = img[neighbourInd];
                         var diffSquare = fnDiffSquare(currentPixel, neighbouringPixel);
                         diffAcc += diffSquare;
                         nCount++;
@@ -2115,13 +2107,13 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             var maxCap = -Number.MAX_SAFE_INTEGER;
             for (var r = 0; r < height; r++) {
                 for (var c = 0; c < width; c++) {
-                    var nodeIndex = GrabCut.GetArrayIndex(r, c, width);
+                    var nodeIndex = GetArrayIndex(r, c, width);
                     for (var i = 0; i < neighbours.length; i++) {
                         var _b = GetNeighbour(r, c, i), validNeighbour = _b[0], nR = _b[1], nC = _b[2];
                         if (!validNeighbour)
                             continue;
-                        var neighbourIndex = GrabCut.GetArrayIndex(nR, nC, width);
-                        var diffSquare = fnDiffSquare(img[r][c], img[nR][nC]);
+                        var neighbourIndex = GetArrayIndex(nR, nC, width);
+                        var diffSquare = fnDiffSquare(img[nodeIndex], img[neighbourIndex]);
                         var exponent = -beta * diffSquare;
                         var capacity = coeff[i] * Math.exp(exponent);
                         if (isNaN(capacity)) {
@@ -2145,40 +2137,39 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             var sinkInd = network.CreateNode();
             for (var r = 0; r < height; r++) {
                 for (var c = 0; c < width; c++) {
-                    var pixelNodeInd = GrabCut.GetArrayIndex(r, c, width);
+                    var pixelNodeInd = GetArrayIndex(r, c, width);
                     network.CreateEdge(srcInd, pixelNodeInd, 0);
                 }
             }
             for (var r = 0; r < height; r++) {
                 for (var c = 0; c < width; c++) {
-                    var pixelNodeInd = GrabCut.GetArrayIndex(r, c, width);
+                    var pixelNodeInd = GetArrayIndex(r, c, width);
                     network.CreateEdge(pixelNodeInd, sinkInd, 0);
                 }
             }
             return [srcInd, sinkInd];
         };
-        GrabCut.UpdateSourceAndSink = function (network, maxCap, gmmFG, gmmBG, image, trimap, srcNode, sinkNode) {
-            var _a = [image.length, image[0].length], nRows = _a[0], nCols = _a[1];
-            for (var r = 0; r < nRows; r++) {
-                for (var c = 0; c < nCols; c++) {
-                    var ind = GrabCut.GetArrayIndex(r, c, nCols);
-                    switch (trimap[ind]) {
+        GrabCut.UpdateSourceAndSink = function (network, maxCap, gmmFG, gmmBG, image, width, height, trimap, srcNode, sinkNode) {
+            for (var r = 0; r < height; r++) {
+                for (var c = 0; c < width; c++) {
+                    var linearIndex = GetArrayIndex(r, c, width);
+                    switch (trimap[linearIndex]) {
                         case Trimap.Foreground: {
-                            network.UpdateEdge(srcNode, ind, maxCap);
-                            network.UpdateEdge(ind, sinkNode, 0);
+                            network.UpdateEdge(srcNode, linearIndex, maxCap);
+                            network.UpdateEdge(linearIndex, sinkNode, 0);
                             break;
                         }
                         case Trimap.Background: {
-                            network.UpdateEdge(srcNode, ind, 0);
-                            network.UpdateEdge(ind, sinkNode, maxCap);
+                            network.UpdateEdge(srcNode, linearIndex, 0);
+                            network.UpdateEdge(linearIndex, sinkNode, maxCap);
                             break;
                         }
                         case Trimap.Unknown: {
-                            var currentPixel = image[r][c];
+                            var currentPixel = image[linearIndex];
                             var pFore = GrabCut.GetTLinkWeight(gmmBG, currentPixel);
                             var pBack = GrabCut.GetTLinkWeight(gmmFG, currentPixel);
-                            network.UpdateEdge(srcNode, ind, pFore);
-                            network.UpdateEdge(ind, sinkNode, pBack);
+                            network.UpdateEdge(srcNode, linearIndex, pFore);
+                            network.UpdateEdge(linearIndex, sinkNode, pBack);
                             break;
                         }
                     }
@@ -2199,20 +2190,20 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             }
             return res;
         };
-        GrabCut.WithinBounds = function (row, col, width, height) {
-            return (row >= 0 && row < height) && (col >= 0 && col < width);
-        };
-        GrabCut.GetArrayIndex = function (row, col, width) {
-            return row * width + col;
-        };
-        GrabCut.get2DArrayIndex = function (index1D, width) {
-            var row = Math.floor(index1D / width);
-            var col = index1D % width;
-            return [row, col];
-        };
         return GrabCut;
     }());
     exports.GrabCut = GrabCut;
+    function WithinBounds(row, col, width, height) {
+        return (row >= 0 && row < height) && (col >= 0 && col < width);
+    }
+    function GetArrayIndex(row, col, width) {
+        return row * width + col;
+    }
+    function get2DArrayIndex(index1D, width) {
+        var row = Math.floor(index1D / width);
+        var col = index1D % width;
+        return [row, col];
+    }
 });
 define("MaxFlowTestCase", ["require", "exports"], function (require, exports) {
     "use strict";
@@ -2360,7 +2351,7 @@ define("WebPage/FileInput", ["require", "exports"], function (require, exports) 
 define("WebPage/ImageUtil", ["require", "exports", "Matrix", "Utility"], function (require, exports, Mat, Util) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.ImgData2URL = exports.ApplyAlphaMaskToImgData = exports.CreateBWImage = exports.ApplyAlphaMask = exports.ImageData2Mat = exports.Trimap2BW = exports.EmptyImage = exports.Temp2DCanvas = exports.RGBA = void 0;
+    exports.ImgData2URL = exports.ApplyAlphaMaskToImgData = exports.CreateBWImage = exports.Apply2DConvolution = exports.FeatherMask = exports.ApplyAlphaMask = exports.ImgData2_1DMat = exports.Trimap2BW = exports.EmptyImage = exports.Temp2DCanvas = exports.RGBA = void 0;
     var RGBA = (function () {
         function RGBA(r, g, b, a) {
             this.red = r;
@@ -2436,23 +2427,20 @@ define("WebPage/ImageUtil", ["require", "exports", "Matrix", "Utility"], functio
         return canvas.SetImageData(imgData);
     }
     exports.Trimap2BW = Trimap2BW;
-    function ImageData2Mat(data) {
-        var result = Util.Fill2DObj(data.height, data.width, function () { return Mat.CreateMatrix(3, 1); });
+    function ImgData2_1DMat(data) {
+        var nPixels = data.width * data.height;
+        var result = Util.FillObj(nPixels, function () { return Mat.CreateMatrix(3, 1); });
         var buffer = data.data;
-        var coeff = 1;
-        for (var r = 0; r < data.height; r++) {
-            var rowOffset = r * data.width;
-            for (var c = 0; c < data.width; c++) {
-                var ind = 4 * (rowOffset + c);
-                var pixel = result[r][c];
-                pixel[0][0] = buffer[ind + 0] * coeff;
-                pixel[1][0] = buffer[ind + 1] * coeff;
-                pixel[2][0] = buffer[ind + 2] * coeff;
-            }
+        for (var i = 0; i < nPixels; i++) {
+            var ind = 4 * i;
+            var pixel = result[i];
+            pixel[0][0] = buffer[ind + 0];
+            pixel[1][0] = buffer[ind + 1];
+            pixel[2][0] = buffer[ind + 2];
         }
         return result;
     }
-    exports.ImageData2Mat = ImageData2Mat;
+    exports.ImgData2_1DMat = ImgData2_1DMat;
     function ApplyAlphaMask(img, alpha) {
         var _a = [img.width, img.height], width = _a[0], height = _a[1];
         var c = new Temp2DCanvas(width, height);
@@ -2469,6 +2457,52 @@ define("WebPage/ImageUtil", ["require", "exports", "Matrix", "Utility"], functio
         return c.SetImageData(bufferData);
     }
     exports.ApplyAlphaMask = ApplyAlphaMask;
+    function FeatherMask(alpha) {
+        var _a = [alpha[0].length, alpha.length], width = _a[0], height = _a[1];
+        var feathered = Mat.CreateMatrix(height, width);
+        var threshold = 0.1;
+        var meanKernel = Util.Fill2DObj(3, 3, function () { return 1 / 9; });
+        for (var r = 0; r < height; r++) {
+            for (var c = 0; c < width; c++) {
+                if (alpha[r][c] < threshold) {
+                    feathered[r][c] = alpha[r][c];
+                }
+                else {
+                    feathered[r][c] = ConvolutionOnPoint(r, c, alpha, height, width, meanKernel, 3, 3, 1, 1);
+                }
+            }
+        }
+        return feathered;
+    }
+    exports.FeatherMask = FeatherMask;
+    function Apply2DConvolution(src, kernel) {
+        var _a = Mat.Dimensions(src), nRows = _a[0], nCols = _a[1];
+        var _b = Mat.Dimensions(kernel), kRows = _b[0], kCols = _b[1];
+        var _c = [Math.floor(kRows / 2), Math.floor(kCols / 2)], kernelMidRow = _c[0], kernelMidCol = _c[1];
+        var result = Mat.CreateMatrix(nRows, nCols);
+        for (var r = 0; r < nRows; r++) {
+            for (var c = 0; c < nCols; c++) {
+                result[r][c] = ConvolutionOnPoint(r, c, src, nRows, nCols, kernel, kRows, kCols, kernelMidRow, kernelMidCol);
+            }
+        }
+        return null;
+    }
+    exports.Apply2DConvolution = Apply2DConvolution;
+    function ConvolutionOnPoint(targetRow, targetCol, src, nRows, nCols, kernel, kRows, kCols, kMidRowIndex, kMidColIndex) {
+        var acc = 0;
+        for (var r = 0; r < kRows; r++) {
+            var destR = targetRow + r - kMidRowIndex;
+            if (destR < 0 || destR >= nRows)
+                continue;
+            for (var c = 0; c < kCols; c++) {
+                var destC = targetCol + c - kMidColIndex;
+                if (destC < 0 || destC >= nCols)
+                    continue;
+                acc += kernel[r][c] * src[destR][destC];
+            }
+        }
+        return acc;
+    }
     function CreateBWImage(values) {
         var _a = [values[0].length, values.length], width = _a[0], height = _a[1];
         var c = new Temp2DCanvas(width, height);
@@ -2675,13 +2709,15 @@ define("WebPage/PreviewView", ["require", "exports", "WebPage/ImageUtil"], funct
         SelectedView[SelectedView["alpha"] = 1] = "alpha";
     })(SelectedView || (SelectedView = {}));
     var PreviewView = (function () {
-        function PreviewView(img, alphaBtn, imageBtn, download) {
+        function PreviewView(img, alphaBtn, imageBtn, download, featherMask) {
             var _this = this;
             this.currentView = SelectedView.image;
             this.img = img;
             this.download = download;
+            this.featherMask = featherMask;
             alphaBtn.addEventListener("click", function () { return _this.SwitchView(SelectedView.alpha); });
             imageBtn.addEventListener("click", function () { return _this.SwitchView(SelectedView.image); });
+            featherMask.addEventListener("change", function () { return _this.Draw(); });
         }
         PreviewView.prototype.AttachEditorView = function (editorView) {
             this.editorView = editorView;
@@ -2691,7 +2727,8 @@ define("WebPage/PreviewView", ["require", "exports", "WebPage/ImageUtil"], funct
         };
         PreviewView.prototype.Draw = function () {
             var showAlphaMask = this.currentView == SelectedView.alpha;
-            var src = this.model.GetCroppedImageURL(showAlphaMask);
+            var featherMask = this.featherMask.checked;
+            var src = this.model.GetCroppedImageURL(showAlphaMask, featherMask);
             this.img.src = (src != null) ? src : IMUtil.EmptyImage();
             if (src != null) {
                 this.download.setAttribute("href", src);
@@ -2917,8 +2954,8 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
     exports.BGColour = new ImgUtil.RGBA(0, 0, 255, 255);
     var Model = (function () {
         function Model() {
-            this.croppedImage = null;
-            this.croppedImageAlpha = null;
+            this.croppedUnfeathered = null;
+            this.croppedFeathered = null;
             this.canvasDrawOps = [];
             this.pendingDrawOps = null;
         }
@@ -2972,8 +3009,8 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
         Model.prototype.SetImage = function (imageURL) {
             var _this = this;
             this.ClearSelection();
-            this.croppedImage = null;
-            this.croppedImageAlpha = null;
+            this.croppedUnfeathered = null;
+            this.croppedFeathered = null;
             var img = new Image();
             var fileURL = imageURL;
             var _ = new Promise(function (resolve) {
@@ -3006,11 +3043,9 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
         Model.prototype.GetOriginalImage = function () {
             return this.originalImage;
         };
-        Model.prototype.GetCroppedImageURL = function (alphaOnly) {
-            if (alphaOnly)
-                return this.croppedImageAlpha;
-            else
-                return this.croppedImage;
+        Model.prototype.GetCroppedImageURL = function (alphaOnly, feathered) {
+            var dataSet = feathered ? this.croppedFeathered : this.croppedUnfeathered;
+            return alphaOnly ? dataSet.mask : dataSet.bitmap;
         };
         Model.prototype.GetTrimap = function () {
             var _a = this.GetImageDim(), width = _a[0], height = _a[1];
@@ -3047,8 +3082,8 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
         };
         Model.prototype.StartGrabCut = function (maxIter, tolerance, nBGClusters, nFGClusters, cohesionFactor) {
             var _a = this.GetImageDim(), width = _a[0], height = _a[1];
-            var img = ImgUtil.ImageData2Mat(this.originalImageData);
-            var cut = new Cut.GrabCut(img);
+            var img = ImgUtil.ImgData2_1DMat(this.originalImageData);
+            var cut = new Cut.GrabCut(img, width, height);
             var trimap = this.GetTrimap();
             cut.SetTrimap(trimap, width, height);
             cut.BeginCrop({
@@ -3059,9 +3094,15 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
                 nBGClusters: nBGClusters
             });
             var mask = cut.GetAlphaMask();
-            var alphaApplied = ImgUtil.ApplyAlphaMaskToImgData(this.originalImageData, mask);
-            this.croppedImage = ImgUtil.ImgData2URL(alphaApplied);
-            this.croppedImageAlpha = ImgUtil.CreateBWImage(mask);
+            this.croppedUnfeathered = {
+                bitmap: ImgUtil.ImgData2URL(ImgUtil.ApplyAlphaMaskToImgData(this.originalImageData, mask)),
+                mask: ImgUtil.CreateBWImage(mask),
+            };
+            var featheredMask = ImgUtil.FeatherMask(mask);
+            this.croppedFeathered = {
+                bitmap: ImgUtil.ImgData2URL(ImgUtil.ApplyAlphaMaskToImgData(this.originalImageData, featheredMask)),
+                mask: ImgUtil.CreateBWImage(featheredMask),
+            };
             this.preview.Draw();
         };
         return Model;
@@ -3464,16 +3505,17 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPag
 define("WebPage/PageMain", ["require", "exports", "WebPage/FileInput", "WebPage/CanvasView", "WebPage/Model", "WebPage/Controller", "WebPage/PreviewView"], function (require, exports, FileInput_1, CanvasView_1, Model_2, Controller_1, PreviewView_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    var imgCanvas = document.getElementById("canvas-main");
-    var editCanvas = document.getElementById("canvas-top");
-    var cropBtn = document.getElementById("btn-crop");
     var previewImg = document.getElementById("img-preview");
     var btnAlpha = document.getElementById("btn-alpha");
     var btnImage = document.getElementById("btn-img");
     var download = document.getElementById("a-download");
+    var featherMask = document.getElementById("checkbox-antialias");
+    var file = new FileInput_1.FileInput("file-image");
+    var imgCanvas = document.getElementById("canvas-main");
+    var editCanvas = document.getElementById("canvas-top");
+    var cropBtn = document.getElementById("btn-crop");
     var radiusRange = document.getElementById("range-brush-size");
     var brushRadioBtns = Array.from(document.getElementsByName("brush"));
-    var file = new FileInput_1.FileInput("file-image");
     var tbMaxIter = new ValidatedTextbox("text-max-iter");
     var tbTolerance = new ValidatedTextbox("text-iter-convergence");
     var tbCohesion = new ValidatedTextbox("text-cohesiveness");
@@ -3487,7 +3529,7 @@ define("WebPage/PageMain", ["require", "exports", "WebPage/FileInput", "WebPage/
         tbBGClusters: tbBGClusters
     };
     var view = new CanvasView_1.CanvasView(imgCanvas, editCanvas);
-    var previewView = new PreviewView_1.PreviewView(previewImg, btnAlpha, btnImage, download);
+    var previewView = new PreviewView_1.PreviewView(previewImg, btnAlpha, btnImage, download, featherMask);
     var model = new Model_2.Model();
     var controller = new Controller_1.Controller(file, imgCanvas, cropBtn, brushRadioBtns, radiusRange, advControls);
     view.AttachModel(model);

@@ -105,6 +105,7 @@
                     </table>
                 </div>
             </div>
+            <!-- Preview Window -->
             <div class="flex-child">
                 <h2>Preview</h2>
                 <div class="row-height">
@@ -113,9 +114,17 @@
                 <img id='img-preview' class="preview-image border"></img>
                 <br />
                 <div>
-                    <button id="btn-alpha">Alpha Mask</button>
-                    <button id="btn-img">Image</button>
-                    <a id="a-download" class="right" download="cropped" disabled>Download</a>
+                    <div>
+                        <button id="btn-alpha">Alpha Mask</button>    
+                        
+                        <a id="a-download" class="right" download="cropped" disabled>Download</a>
+                    </div>
+                    <div>
+                        <button id="btn-img">Image</button>
+                    </div>
+                    <div>
+                        <input id="checkbox-antialias" type="checkbox" checked>Feather Mask</input>
+                    </div>
                 </div>
             </div>
         </div>
