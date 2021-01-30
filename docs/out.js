@@ -12,7 +12,7 @@ var __extends = (this && this.__extends) || (function () {
         d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
     };
 })();
-define("Utility", ["require", "exports", "Collections"], function (require, exports, Collections_1) {
+define("Utility", ["require", "exports", "Collections/Dictionary"], function (require, exports, Dict) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.UniqueRandom = exports.Fill2DRect = exports.HashItems = exports.Sum = exports.Max = exports.Swap = exports.Zip = exports.Fill2DObj = exports.FillObj = exports.Memset = exports.Fill = exports.Range = exports.PerfectlyDivisible = exports.Clamp = void 0;
@@ -107,7 +107,7 @@ define("Utility", ["require", "exports", "Collections"], function (require, expo
     }
     exports.Sum = Sum;
     function HashItems(list, keyGenerator) {
-        var dict = new Collections_1.Dictionary();
+        var dict = new Dict.ObjectDict();
         for (var i = 0; i < list.length; i++) {
             var item = list[i];
             var key = keyGenerator(item);
@@ -131,7 +131,7 @@ define("Utility", ["require", "exports", "Collections"], function (require, expo
     function UniqueRandom(nNumbers, upperInclusive) {
         if (nNumbers > upperInclusive)
             throw new Error('UniqueRandom: nNumbers must be smaller than upperInclusive');
-        var dict = new Collections_1.Dictionary();
+        var dict = new Dict.ObjectDict();
         var selected = [];
         while (selected.length < nNumbers) {
             var rand = Math.floor(Math.random() * upperInclusive);
@@ -144,10 +144,55 @@ define("Utility", ["require", "exports", "Collections"], function (require, expo
     }
     exports.UniqueRandom = UniqueRandom;
 });
-define("Collections", ["require", "exports", "Utility"], function (require, exports, Util) {
+define("Collections/Dictionary", ["require", "exports", "Utility"], function (require, exports, Util) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.VisitedArray = exports.Dictionary = exports.LabelledCircularQueue = exports.CircularBufferQueue = exports.DoubleStackQueue = void 0;
+    exports.VisitedArray = exports.ObjectDict = void 0;
+    var ObjectDict = (function () {
+        function ObjectDict() {
+            this.hashtable = {};
+        }
+        ObjectDict.prototype.ContainsKey = function (key) {
+            return this.hashtable.hasOwnProperty(key);
+        };
+        ObjectDict.prototype.Remove = function (key) {
+            delete this.hashtable[key];
+        };
+        ObjectDict.prototype.Get = function (key) {
+            return this.hashtable[key];
+        };
+        ObjectDict.prototype.Set = function (key, value) {
+            this.hashtable[key] = value;
+        };
+        ObjectDict.prototype.ToList = function () {
+            var _this = this;
+            return Object.keys(this.hashtable).map(function (s) { return [s, _this.hashtable[s]]; });
+        };
+        return ObjectDict;
+    }());
+    exports.ObjectDict = ObjectDict;
+    var VisitedArray = (function () {
+        function VisitedArray(size) {
+            this.visited = Util.Fill(size, -1);
+            this.token = 0;
+        }
+        VisitedArray.prototype.UpdateToken = function () {
+            var threshold = 2147483647;
+            if (this.token >= threshold) {
+                this.token = 1;
+                Util.Memset(this.visited, 0);
+            }
+            this.token += 1;
+            return [this.visited, this.token];
+        };
+        return VisitedArray;
+    }());
+    exports.VisitedArray = VisitedArray;
+});
+define("Collections/Queue", ["require", "exports", "Collections/Dictionary", "Utility"], function (require, exports, Dict, Util) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.LabelledCircularQueue = exports.CircularBufferQueue = exports.DoubleStackQueue = void 0;
     var DoubleStackQueue = (function () {
         function DoubleStackQueue() {
             this.incoming = [];
@@ -236,13 +281,13 @@ define("Collections", ["require", "exports", "Utility"], function (require, expo
             if (initialSize === void 0) { initialSize = 32; }
             var _this = _super.call(this, initialSize) || this;
             _this.skip = Util.Fill(initialSize, false);
-            _this.indices = new Dictionary();
+            _this.indices = new Dict.ObjectDict();
             return _this;
         }
         LabelledCircularQueue.prototype.ResizeBuffers = function (currentSize, newSize) {
             var resizedSkip = new Array(newSize);
             var resizedBuffer = new Array(newSize);
-            var newDict = new Dictionary();
+            var newDict = new Dict.ObjectDict();
             var destInd = 0;
             for (var i = 0; i < currentSize; i++) {
                 var ind = (this.tail + i) % currentSize;
@@ -309,48 +354,12 @@ define("Collections", ["require", "exports", "Utility"], function (require, expo
         return LabelledCircularQueue;
     }(CircularBufferQueue));
     exports.LabelledCircularQueue = LabelledCircularQueue;
-    var Dictionary = (function () {
-        function Dictionary() {
-            this.hashtable = {};
-        }
-        Dictionary.prototype.ContainsKey = function (key) {
-            return this.hashtable.hasOwnProperty(key);
-        };
-        Dictionary.prototype.Remove = function (key) {
-            delete this.hashtable[key];
-        };
-        Dictionary.prototype.Get = function (key) {
-            return this.hashtable[key];
-        };
-        Dictionary.prototype.Set = function (key, value) {
-            this.hashtable[key] = value;
-        };
-        return Dictionary;
-    }());
-    exports.Dictionary = Dictionary;
-    var VisitedArray = (function () {
-        function VisitedArray(size) {
-            this.visited = Util.Fill(size, -1);
-            this.token = 0;
-        }
-        VisitedArray.prototype.UpdateToken = function () {
-            var threshold = 2147483647;
-            if (this.token >= threshold) {
-                this.token = 1;
-                Util.Memset(this.visited, 0);
-            }
-            this.token += 1;
-            return [this.visited, this.token];
-        };
-        return VisitedArray;
-    }());
-    exports.VisitedArray = VisitedArray;
 });
 define("FlowNetworkSolver", ["require", "exports"], function (require, exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
 });
-define("BKGraph", ["require", "exports", "Collections", "Utility"], function (require, exports, DS, Util) {
+define("BKGraph", ["require", "exports", "Collections/Dictionary", "Collections/Queue", "Utility"], function (require, exports, Dict, Q, Util) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.BKMaxflow = exports.BKNetwork = exports.TreeFlag = void 0;
@@ -386,7 +395,7 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
         BKNetwork.prototype.CreateNode = function () {
             var ind = this.nodes.length;
             this.nodes.push(new BKNode());
-            this.edgeList.push(new DS.Dictionary());
+            this.edgeList.push(new Dict.ObjectDict());
             return ind;
         };
         BKNetwork.prototype.CreateEdge = function (source, dest, capacity) {
@@ -621,7 +630,7 @@ define("BKGraph", ["require", "exports", "Collections", "Utility"], function (re
     }
     exports.BKMaxflow = function (src, sink, network) {
         var nodes = network.nodes;
-        var active = new DS.LabelledCircularQueue();
+        var active = new Q.LabelledCircularQueue();
         var activeEdge = Util.Fill(nodes.length, 0);
         var flags = new Uint8Array(nodes.length);
         var parents = Util.Fill(nodes.length, NULL_PARENT);
@@ -1055,7 +1064,7 @@ define("ConvergenceChecker", ["require", "exports"], function (require, exports)
     }());
     exports.ConvergenceChecker = ConvergenceChecker;
 });
-define("DinicFlowSolver", ["require", "exports", "Utility", "Collections"], function (require, exports, Util, DS) {
+define("DinicFlowSolver", ["require", "exports", "Utility", "Collections/Dictionary", "Collections/Queue"], function (require, exports, Util, Dict, Q) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.DinicSolver = exports.MinCut = exports.DinicMaxFlow = exports.DinicNetwork = exports.GraphNode = exports.Edge = void 0;
@@ -1087,7 +1096,7 @@ define("DinicFlowSolver", ["require", "exports", "Utility", "Collections"], func
         DinicNetwork.prototype.CreateNode = function () {
             var count = this.nodeList.length;
             this.nodeList.push(new GraphNode(count));
-            this.edgeMap.push(new DS.Dictionary());
+            this.edgeMap.push(new Dict.ObjectDict());
             return count;
         };
         DinicNetwork.prototype.CreateEdge = function (source, sink, capacity) {
@@ -1139,8 +1148,8 @@ define("DinicFlowSolver", ["require", "exports", "Utility", "Collections"], func
         lGraph++;
         Util.Memset(levelGraph, -1);
         var _a = visitedArr.UpdateToken(), visited = _a[0], visitedToken = _a[1];
-        var nodeFrontier = new DS.CircularBufferQueue();
-        var depthFrontier = new DS.CircularBufferQueue();
+        var nodeFrontier = new Q.CircularBufferQueue();
+        var depthFrontier = new Q.CircularBufferQueue();
         nodeFrontier.Enqueue(sourceID);
         depthFrontier.Enqueue(0);
         visited[sourceID] = visitedToken;
@@ -1227,7 +1236,7 @@ define("DinicFlowSolver", ["require", "exports", "Utility", "Collections"], func
         var nodes = network.nodeList;
         var edges = network.edgeList;
         var levelGraph = Util.Fill(nodes.length, 0);
-        var visitedArr = new DS.VisitedArray(nodes.length);
+        var visitedArr = new Dict.VisitedArray(nodes.length);
         var path = Util.Fill(nodes.length, -1);
         var pathFound = true;
         var activeEdge = Util.Fill(nodes.length, 0);
@@ -1253,7 +1262,7 @@ define("DinicFlowSolver", ["require", "exports", "Utility", "Collections"], func
         var visitedNodeList = [];
         var nodes = network.nodeList;
         var visited = Util.Fill(nodes.length, false);
-        var frontier = new DS.CircularBufferQueue();
+        var frontier = new Q.CircularBufferQueue();
         frontier.Enqueue(sourceID);
         visited[sourceID] = true;
         while (frontier.Count() > 0) {
@@ -1342,7 +1351,7 @@ define("V3", ["require", "exports", "Matrix"], function (require, exports, M) {
     }
     exports.isV3 = isV3;
 });
-define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections", "ConvergenceChecker", "V3"], function (require, exports, Util, Mat, Collections_2, Conv, V3) {
+define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections/Dictionary", "ConvergenceChecker", "V3"], function (require, exports, Util, Mat, Dict, Conv, V3) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.Fit = exports.Initializer = exports.KMeansResult = void 0;
@@ -1392,7 +1401,7 @@ define("KMeans", ["require", "exports", "Utility", "Matrix", "Collections", "Con
         Initializer[Initializer["KMeansPlusPlus"] = 1] = "KMeansPlusPlus";
     })(Initializer = exports.Initializer || (exports.Initializer = {}));
     function kMeansPlusPlusInit(nClusters, data) {
-        var selected = new Collections_2.Dictionary();
+        var selected = new Dict.ObjectDict();
         var firstIndex = Math.floor(Math.random() * (data.length - 1));
         selected.Set(firstIndex, true);
         var centres = [data[firstIndex]];
@@ -1980,19 +1989,12 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
         GrabCut.SegregatePixels = function (img, matte, top, left, height, width) {
             var fgPixels = [];
             var bgPixels = [];
-            var right = left + width;
-            var bot = top + height;
-            for (var r = top; r < bot; r++) {
-                for (var c = left; c < right; c++) {
-                    var linearIndex = GetArrayIndex(r, c, width);
-                    var currentPixel = img[linearIndex];
-                    if (matte[linearIndex] == Trimap.Foreground) {
-                        fgPixels.push(currentPixel);
-                    }
-                    else {
-                        bgPixels.push(currentPixel);
-                    }
-                }
+            for (var idx = 0; idx < img.length; idx++) {
+                var currentPixel = img[idx];
+                if (matte[idx] == Trimap.Foreground)
+                    fgPixels.push(currentPixel);
+                else
+                    bgPixels.push(currentPixel);
             }
             return [fgPixels, bgPixels];
         };
@@ -2035,35 +2037,6 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             var fgIndices = Util.Range(0, nFGClusters);
             var bgIndices = Util.Range(nFGClusters, nFGClusters + nBGClusters);
             return [fgIndices, fgGroupSizes, bgIndices, bgGroupSizes];
-        };
-        GrabCut.BinPixels = function (fgGMM, bgGMM, bgPixels, fgPixels) {
-            var maxIndex = function (arr) {
-                var max = Number.MIN_SAFE_INTEGER;
-                var maxInd = 0;
-                for (var i = 0; i < arr.length; i++) {
-                    var current = arr[i];
-                    if (current > max) {
-                        maxInd = i;
-                        max = current;
-                    }
-                }
-                return maxInd;
-            };
-            var fg = Util.FillObj(fgGMM.clusters.length, function () { return []; });
-            var bg = Util.FillObj(bgGMM.clusters.length, function () { return []; });
-            for (var i = 0; i < bgPixels.length; i++) {
-                var pixel = bgPixels[i];
-                var prob = bgGMM.Predict(pixel).likelihoods;
-                var bin = maxIndex(prob);
-                bg[bin].push(pixel);
-            }
-            for (var i = 0; i < fgPixels.length; i++) {
-                var pixel = fgPixels[i];
-                var prob = fgGMM.Predict(pixel).likelihoods;
-                var bin = maxIndex(prob);
-                fg[bin].push(pixel);
-            }
-            return [fg, bg];
         };
         GrabCut.GeneratePixel2PixelGraph = function (img, width, height, network, cohesionFactor) {
             var isV3 = V3.isV3(img[0]);
@@ -2150,28 +2123,26 @@ define("GrabCut", ["require", "exports", "GMM", "BKGraph", "Matrix", "Utility", 
             return [srcInd, sinkInd];
         };
         GrabCut.UpdateSourceAndSink = function (network, maxCap, gmmFG, gmmBG, image, width, height, trimap, srcNode, sinkNode) {
-            for (var r = 0; r < height; r++) {
-                for (var c = 0; c < width; c++) {
-                    var linearIndex = GetArrayIndex(r, c, width);
-                    switch (trimap[linearIndex]) {
-                        case Trimap.Foreground: {
-                            network.UpdateEdge(srcNode, linearIndex, maxCap);
-                            network.UpdateEdge(linearIndex, sinkNode, 0);
-                            break;
-                        }
-                        case Trimap.Background: {
-                            network.UpdateEdge(srcNode, linearIndex, 0);
-                            network.UpdateEdge(linearIndex, sinkNode, maxCap);
-                            break;
-                        }
-                        case Trimap.Unknown: {
-                            var currentPixel = image[linearIndex];
-                            var pFore = GrabCut.GetTLinkWeight(gmmBG, currentPixel);
-                            var pBack = GrabCut.GetTLinkWeight(gmmFG, currentPixel);
-                            network.UpdateEdge(srcNode, linearIndex, pFore);
-                            network.UpdateEdge(linearIndex, sinkNode, pBack);
-                            break;
-                        }
+            var nPixels = width * height;
+            for (var idx = 0; idx < nPixels; idx++) {
+                switch (trimap[idx]) {
+                    case Trimap.Foreground: {
+                        network.UpdateEdge(srcNode, idx, maxCap);
+                        network.UpdateEdge(idx, sinkNode, 0);
+                        break;
+                    }
+                    case Trimap.Background: {
+                        network.UpdateEdge(srcNode, idx, 0);
+                        network.UpdateEdge(idx, sinkNode, maxCap);
+                        break;
+                    }
+                    case Trimap.Unknown: {
+                        var currentPixel = image[idx];
+                        var pFore = GrabCut.GetTLinkWeight(gmmBG, currentPixel);
+                        var pBack = GrabCut.GetTLinkWeight(gmmFG, currentPixel);
+                        network.UpdateEdge(srcNode, idx, pFore);
+                        network.UpdateEdge(idx, sinkNode, pBack);
+                        break;
                     }
                 }
             }
@@ -2314,39 +2285,6 @@ define("Tests", ["require", "exports", "DinicFlowSolver", "BKGraph", "MaxFlowTes
         console.log("expected: 2789");
     }
     BkBenchmark();
-});
-define("WebPage/FileInput", ["require", "exports"], function (require, exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.FileInput = void 0;
-    var FileInput = (function () {
-        function FileInput(id) {
-            var _this = this;
-            this.listeners = [];
-            this.element = document.getElementById(id);
-            var listener = function (arg) { return _this.ProcessInputChange(arg, _this); };
-            this.element.addEventListener("change", listener);
-            this.data = null;
-        }
-        FileInput.prototype.ProcessInputChange = function (arg, self) {
-            if (self.element.value.length > 0) {
-                var reader_1 = new FileReader();
-                reader_1.onload = function () {
-                    self.data = reader_1.result;
-                    self.listeners.forEach(function (l) { return l(); });
-                };
-                reader_1.readAsDataURL(self.element.files[0]);
-            }
-        };
-        FileInput.prototype.GetDataURL = function () {
-            return this.data;
-        };
-        FileInput.prototype.RegisterImageLoad = function (callback) {
-            this.listeners.push(callback);
-        };
-        return FileInput;
-    }());
-    exports.FileInput = FileInput;
 });
 define("WebPage/ImageUtil", ["require", "exports", "Matrix", "Utility"], function (require, exports, Mat, Util) {
     "use strict";
@@ -2837,7 +2775,7 @@ define("WebPage/Transform", ["require", "exports", "Matrix", "WebPage/Drawing2D"
 define("WebPage/DrawCall", ["require", "exports", "WebPage/Drawing2D", "WebPage/Transform"], function (require, exports, Cam, T) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.SegmentDrawCall = exports.InvertedRectDrawCall = exports.HollowRectDrawCall = void 0;
+    exports.HollowCircleCall = exports.SegmentDrawCall = exports.InvertedRectDrawCall = exports.HollowRectDrawCall = void 0;
     var HollowRectDrawCall = (function () {
         function HollowRectDrawCall(colour, width) {
             this.rect = null;
@@ -2945,8 +2883,36 @@ define("WebPage/DrawCall", ["require", "exports", "WebPage/Drawing2D", "WebPage/
         return SegmentDrawCall;
     }());
     exports.SegmentDrawCall = SegmentDrawCall;
+    var HollowCircleCall = (function () {
+        function HollowCircleCall(start, diameter) {
+            this.diameter = diameter;
+            this.centre = start;
+        }
+        HollowCircleCall.prototype.UpdateLocation = function (centre, diameter) {
+            this.diameter = diameter;
+            this.centre = centre;
+        };
+        HollowCircleCall.prototype.Draw = function (hDC) {
+            var originalCompositingMode = hDC.globalCompositeOperation;
+            hDC.globalCompositeOperation = "xor";
+            hDC.beginPath();
+            hDC.strokeStyle = "#000000";
+            hDC.lineWidth = 1;
+            hDC.arc(this.centre.x, this.centre.y, this.diameter / 2, 0, 2 * Math.PI);
+            hDC.stroke();
+            hDC.globalCompositeOperation = originalCompositingMode;
+        };
+        HollowCircleCall.prototype.Transform = function (transform) {
+            var scale = T.GetScalingFactor(transform)[0];
+            var scaledDiameter = scale * this.diameter;
+            var transformedPoint = T.Apply2DTransform(this.centre, transform);
+            return new HollowCircleCall(transformedPoint, scaledDiameter);
+        };
+        return HollowCircleCall;
+    }());
+    exports.HollowCircleCall = HollowCircleCall;
 });
-define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "Utility", "Matrix"], function (require, exports, Cut, ImgUtil, Util, Mat) {
+define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "Utility", "Matrix", "Collections/Dictionary"], function (require, exports, Cut, ImgUtil, Util, Mat, Dict) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.Model = exports.BGColour = exports.FGColour = void 0;
@@ -2957,26 +2923,32 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
             this.croppedUnfeathered = null;
             this.croppedFeathered = null;
             this.canvasDrawOps = [];
-            this.pendingDrawOps = null;
+            this.uiDrawOps = new Dict.ObjectDict();
         }
-        Model.prototype.BeginDrawCall = function (call) {
-            this.pendingDrawOps = call;
+        Model.prototype.BeginDrawCall = function (id, call) {
+            this.uiDrawOps.Set(id, call);
             this.TriggerCanvasRedraw();
         };
-        Model.prototype.UpdateDrawCall = function (call, finalize) {
+        Model.prototype.UpdateDrawCall = function (id, call, finalize) {
             if (finalize === void 0) { finalize = false; }
             if (!finalize) {
-                this.pendingDrawOps = call;
+                this.uiDrawOps.Set(id, call);
             }
             else {
-                this.pendingDrawOps = null;
+                this.uiDrawOps.Remove(id);
                 this.canvasDrawOps.push(call);
             }
             this.TriggerCanvasRedraw();
         };
-        Model.prototype.UndoLast = function () {
-            if (this.pendingDrawOps != null) {
-                this.pendingDrawOps = null;
+        Model.prototype.RemoveUIElement = function (id) {
+            if (this.uiDrawOps.ContainsKey(id)) {
+                this.uiDrawOps.Remove(id);
+                this.TriggerCanvasRedraw();
+            }
+        };
+        Model.prototype.UndoLast = function (id) {
+            if (id != null && this.uiDrawOps.ContainsKey(id)) {
+                this.uiDrawOps.Remove(id);
             }
             else {
                 if (this.canvasDrawOps.length == 0)
@@ -2985,9 +2957,9 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
             }
             this.TriggerCanvasRedraw();
         };
-        Model.prototype.GetDrawOps = function (imgToDestTransform) {
-            var last = (this.pendingDrawOps == null) ? [] : [this.pendingDrawOps];
-            var merged = this.canvasDrawOps.concat(last);
+        Model.prototype.GetDrawOps = function (imgToDestTransform, showUI) {
+            var tail = (showUI) ? this.uiDrawOps.ToList().map(function (t) { return t[1]; }) : [];
+            var merged = this.canvasDrawOps.concat(tail);
             return merged.map(function (drawOp) { return drawOp.Transform(imgToDestTransform); });
         };
         Model.prototype.TriggerCanvasRedraw = function () {
@@ -3000,7 +2972,6 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
             this.preview = preview;
         };
         Model.prototype.ClearSelection = function () {
-            this.pendingDrawOps = null;
             this.canvasDrawOps = [];
         };
         Model.prototype.ImageLoaded = function () {
@@ -3045,14 +3016,19 @@ define("WebPage/Model", ["require", "exports", "GrabCut", "WebPage/ImageUtil", "
         };
         Model.prototype.GetCroppedImageURL = function (alphaOnly, feathered) {
             var dataSet = feathered ? this.croppedFeathered : this.croppedUnfeathered;
-            return alphaOnly ? dataSet.mask : dataSet.bitmap;
+            if (dataSet != null) {
+                return alphaOnly ? dataSet.mask : dataSet.bitmap;
+            }
+            else {
+                return null;
+            }
         };
         Model.prototype.GetTrimap = function () {
             var _a = this.GetImageDim(), width = _a[0], height = _a[1];
             var tempCanvas = new ImgUtil.Temp2DCanvas(width, height);
             var hDC = tempCanvas.GetHDC();
             var Identity = Mat.Identity(3);
-            var ops = this.GetDrawOps(Identity);
+            var ops = this.GetDrawOps(Identity, false);
             ops.forEach(function (op) { return op.Draw(hDC); });
             var imgData = tempCanvas.GetImageData();
             var trimap = Util.Fill2DObj(height, width, function () { return Cut.Trimap.Unknown; });
@@ -3115,7 +3091,7 @@ define("WebPage/CanvasView", ["require", "exports", "WebPage/Transform", "Utilit
     exports.CanvasView = void 0;
     var CanvasView = (function () {
         function CanvasView(imgCanvas, editingCanvas) {
-            this.ZOOM_MAX = 2.0;
+            this.ZOOM_MAX = 3.0;
             this.ZOOM_MIN = 0;
             this.zoomFactor = 0;
             this.offsetX = 0;
@@ -3195,7 +3171,7 @@ define("WebPage/CanvasView", ["require", "exports", "WebPage/Transform", "Utilit
             var clipRegion = new Path2D();
             clipRegion.rect(canvasImgRect.x, canvasImgRect.y, canvasImgRect.width, canvasImgRect.height);
             editHDC.clip(clipRegion);
-            var drawOps = this.model.GetDrawOps(imgToCanvas);
+            var drawOps = this.model.GetDrawOps(imgToCanvas, true);
             drawOps.forEach(function (d) {
                 d.Draw(editHDC);
             });
@@ -3212,6 +3188,39 @@ define("WebPage/CanvasView", ["require", "exports", "WebPage/Transform", "Utilit
         return CanvasView;
     }());
     exports.CanvasView = CanvasView;
+});
+define("WebPage/FileInput", ["require", "exports"], function (require, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.FileInput = void 0;
+    var FileInput = (function () {
+        function FileInput(id) {
+            var _this = this;
+            this.listeners = [];
+            this.element = document.getElementById(id);
+            var listener = function (arg) { return _this.ProcessInputChange(arg, _this); };
+            this.element.addEventListener("change", listener);
+            this.data = null;
+        }
+        FileInput.prototype.ProcessInputChange = function (arg, self) {
+            if (self.element.value.length > 0) {
+                var reader_1 = new FileReader();
+                reader_1.onload = function () {
+                    self.data = reader_1.result;
+                    self.listeners.forEach(function (l) { return l(); });
+                };
+                reader_1.readAsDataURL(self.element.files[0]);
+            }
+        };
+        FileInput.prototype.GetDataURL = function () {
+            return this.data;
+        };
+        FileInput.prototype.RegisterImageLoad = function (callback) {
+            this.listeners.push(callback);
+        };
+        return FileInput;
+    }());
+    exports.FileInput = FileInput;
 });
 define("WebPage/ToolHandler", ["require", "exports", "WebPage/DrawCall", "WebPage/Drawing2D"], function (require, exports, Ed, Cam) {
     "use strict";
@@ -3238,6 +3247,12 @@ define("WebPage/ToolHandler", ["require", "exports", "WebPage/DrawCall", "WebPag
         HollowRectToolHandler.prototype.MouseUp = function (canvasPoint) {
             this.selEnd = canvasPoint;
             return this.UpdateRect();
+        };
+        HollowRectToolHandler.prototype.GetID = function () {
+            return "hollow_rect";
+        };
+        HollowRectToolHandler.prototype.GetCursor = function (canvasPoint) {
+            return null;
         };
         HollowRectToolHandler.prototype.UpdateRect = function () {
             this.rect.SetPoints(this.selStart, this.selEnd);
@@ -3267,6 +3282,12 @@ define("WebPage/ToolHandler", ["require", "exports", "WebPage/DrawCall", "WebPag
             this.p2 = canvasPoint;
             return this.GenRect();
         };
+        InvertedRectToolHandler.prototype.GetID = function () {
+            return "inverted_rect";
+        };
+        InvertedRectToolHandler.prototype.GetCursor = function (canvasPoint) {
+            return null;
+        };
         InvertedRectToolHandler.prototype.GenRect = function () {
             this.invertedRect.SetPoints(this.p1, this.p2);
             return this.invertedRect;
@@ -3294,6 +3315,12 @@ define("WebPage/ToolHandler", ["require", "exports", "WebPage/DrawCall", "WebPag
         SegmentToolHandler.prototype.MouseUp = function (canvasPoint) {
             this.segment.AddEndPoint(canvasPoint, this.width);
             return this.segment;
+        };
+        SegmentToolHandler.prototype.GetID = function () {
+            return "segment_brush";
+        };
+        SegmentToolHandler.prototype.GetCursor = function (canvasPoint) {
+            return new Ed.HollowCircleCall(canvasPoint, this.width);
         };
         return SegmentToolHandler;
     }());
@@ -3364,7 +3391,9 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPag
     }());
     var Controller = (function () {
         function Controller(file, canvas, cropBtn, brushRadioBtns, radiusRange, advList) {
+            var _this = this;
             this.toolHandler = null;
+            this.toolActive = false;
             this.debounce = new MouseDebounce();
             this.mDrag = new MouseDrag();
             this.file = file;
@@ -3373,6 +3402,8 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPag
             this.brushRadioBtns = brushRadioBtns;
             this.radiusRange = radiusRange;
             this.advControls = advList;
+            brushRadioBtns.forEach(function (btn) { return btn.addEventListener("change", _this.loadBrush.bind(_this)); });
+            radiusRange.addEventListener("change", this.loadBrush.bind(this));
             canvas.addEventListener("mousedown", this.begin.bind(this));
             canvas.addEventListener("mousemove", this.drag.bind(this));
             canvas.addEventListener("mouseup", this.end.bind(this));
@@ -3380,7 +3411,13 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPag
             document.addEventListener("keydown", this.Undo.bind(this));
             cropBtn.addEventListener("click", this.triggerGrabCut.bind(this));
             canvas.addEventListener("wheel", this.mouseScroll.bind(this), { passive: true });
+            file.RegisterImageLoad(this.SelectRect.bind(this));
         }
+        Controller.prototype.SelectRect = function () {
+            var fgRectBtn = this.brushRadioBtns.find(function (btn) { return btn.value == "fg-rect"; });
+            fgRectBtn.checked = true;
+            this.loadBrush();
+        };
         Controller.prototype.AttachView = function (canvasView) {
             this.canvasView = canvasView;
         };
@@ -3424,13 +3461,20 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPag
         };
         Controller.prototype.Undo = function (e) {
             if (e.ctrlKey && e.key == "z") {
-                this.model.UndoLast();
+                var toolID = (this.toolHandler != null) ? this.toolHandler.GetID() : null;
+                this.model.UndoLast(toolID);
+                this.toolActive = false;
             }
         };
         Controller.prototype.Screen2Buffer = function (canvasPoint) {
             var img2Canvas = this.canvasView.ImgToCanvasTransform();
             var canvas2Img = Mat.Inverse(img2Canvas);
             return T.Apply2DTransform(canvasPoint, canvas2Img);
+        };
+        Controller.prototype.loadBrush = function () {
+            var initActions = this.GetSelectedBrush();
+            this.toolInitActions = initActions.init;
+            this.toolHandler = initActions.drawHandlerFactory();
         };
         Controller.prototype.begin = function (e) {
             var redraw = false;
@@ -3439,11 +3483,12 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPag
             var leftPressed = e.button == LEFT_CLICK_SINGLE;
             if (leftPressed) {
                 this.debounce.BeginMovement(e.clientX, e.clientY);
-                var initActions = this.GetSelectedBrush();
-                initActions.init();
-                this.toolHandler = initActions.drawHandlerFactory();
+                if (this.toolHandler == null)
+                    this.loadBrush();
+                this.toolActive = true;
+                this.toolInitActions();
                 var drawCall = this.toolHandler.MouseDown(start);
-                this.model.BeginDrawCall(drawCall);
+                this.model.BeginDrawCall(this.toolHandler.GetID(), drawCall);
                 redraw = true;
             }
             var rightPressed = e.button == RIGHT_CLICK_SINGLE;
@@ -3457,15 +3502,29 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPag
         Controller.prototype.drag = function (e) {
             var redraw = false;
             var canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
-            var point = (this.model.ImageLoaded()) ? this.Screen2Buffer(canvasPoint) : Cam.origin;
+            var imgLoaded = this.model.ImageLoaded();
+            var point = (imgLoaded) ? this.Screen2Buffer(canvasPoint) : Cam.origin;
             var leftDown = e.buttons & LEFT_CLICK_FLAG;
-            var toolSelectedAndLeftDown = this.toolHandler != null && leftDown;
-            if (toolSelectedAndLeftDown) {
+            var toolSelected = this.toolHandler != null;
+            if (toolSelected && leftDown) {
                 var notBebouncing = this.debounce.AllowUpdate(e.clientX, e.clientY);
                 if (notBebouncing) {
                     var drawCall = this.toolHandler.MouseDrag(point);
-                    this.model.UpdateDrawCall(drawCall, false);
+                    this.model.UpdateDrawCall(this.toolHandler.GetID(), drawCall, false);
                     redraw = true;
+                }
+            }
+            if (imgLoaded && toolSelected) {
+                var cursorID = this.toolHandler.GetID + "_cursor";
+                if (this.toolActive) {
+                    this.model.RemoveUIElement(cursorID);
+                }
+                else {
+                    var drawCall = this.toolHandler.GetCursor(point);
+                    if (drawCall != null) {
+                        this.model.UpdateDrawCall(cursorID, this.toolHandler.GetCursor(point));
+                        redraw = true;
+                    }
                 }
             }
             var rightDown = e.buttons & RIGHT_CLICK_FLAG;
@@ -3483,11 +3542,11 @@ define("WebPage/Controller", ["require", "exports", "WebPage/Drawing2D", "WebPag
             var canvasPoint = Cam.RelPos(e.clientX, e.clientY, this.canvas);
             var point = (this.model.ImageLoaded()) ? this.Screen2Buffer(canvasPoint) : Cam.origin;
             var leftReleased = e.button == LEFT_CLICK_SINGLE;
-            var toolSelected = this.toolHandler != null;
+            var toolSelected = (this.toolHandler != null);
             if (leftReleased && toolSelected) {
                 var drawCall = this.toolHandler.MouseUp(point);
-                this.model.UpdateDrawCall(drawCall, true);
-                this.toolHandler = null;
+                this.model.UpdateDrawCall(this.toolHandler.GetID(), drawCall, true);
+                this.toolActive = false;
                 redraw = true;
             }
             var rightReleased = e.button == RIGHT_CLICK_SINGLE;

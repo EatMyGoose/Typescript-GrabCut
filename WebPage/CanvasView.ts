@@ -10,7 +10,7 @@ export class CanvasView {
     editingCanvas: HTMLCanvasElement;
     model: Model;
 
-    private readonly ZOOM_MAX: number = 2.0;
+    private readonly ZOOM_MAX: number = 3.0;
     private ZOOM_MIN: number = 0;
     private zoomFactor = 0;
 
@@ -124,7 +124,7 @@ export class CanvasView {
         clipRegion.rect(canvasImgRect.x, canvasImgRect.y, canvasImgRect.width, canvasImgRect.height);
         editHDC.clip(clipRegion);
         //Draw
-        let drawOps = this.model.GetDrawOps(imgToCanvas);
+        let drawOps = this.model.GetDrawOps(imgToCanvas, true);
         drawOps.forEach(d => {
             d.Draw(editHDC);
         });

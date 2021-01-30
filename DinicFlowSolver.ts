@@ -1,5 +1,6 @@
 import * as Util from './Utility'
-import * as DS from './Collections'
+import * as Dict from "./Collections/Dictionary"
+import * as Q from "./Collections/Queue"
 import * as FlowBase from "./FlowNetworkSolver"
 
 export class Edge{
@@ -32,7 +33,7 @@ export class DinicNetwork implements FlowBase.IFlowNetwork{
     nodeList: GraphNode[]; 
     edgeList: Edge[]; //Every second edge will be a reverse edge.
     
-    private edgeMap: DS.Dictionary<number>[] = [];
+    private edgeMap: Dict.IHashtable<number>[] = [];
     
     constructor(){
         this.nodeList = []; 
@@ -42,7 +43,7 @@ export class DinicNetwork implements FlowBase.IFlowNetwork{
     CreateNode():number{
         let count = this.nodeList.length;
         this.nodeList.push(new GraphNode(count));
-        this.edgeMap.push(new DS.Dictionary<number>());
+        this.edgeMap.push(new Dict.ObjectDict<number>());
         return count;
     }
 
@@ -133,14 +134,14 @@ let lGraph = 0;
 let fPath = 0;
 let nAugment = 0;
 
-function DinicLevelGraph(sinkID:number, sourceID:number, nodes:GraphNode[], visitedArr:DS.VisitedArray, levelGraph:number[]) : boolean{
+function DinicLevelGraph(sinkID:number, sourceID:number, nodes:GraphNode[], visitedArr:Dict.VisitedArray, levelGraph:number[]) : boolean{
     lGraph++;
 
     Util.Memset<number>(levelGraph, -1);
     let [visited, visitedToken] = visitedArr.UpdateToken();
 
-    let nodeFrontier = new DS.CircularBufferQueue<number>(); 
-    let depthFrontier = new DS.CircularBufferQueue<number>();
+    let nodeFrontier = new Q.CircularBufferQueue<number>(); 
+    let depthFrontier = new Q.CircularBufferQueue<number>();
     nodeFrontier.Enqueue(sourceID);
     depthFrontier.Enqueue(0);
     visited[sourceID] = visitedToken;
@@ -173,7 +174,7 @@ function DinicLevelGraph(sinkID:number, sourceID:number, nodes:GraphNode[], visi
     return pathFound;
 }
 
-function DinicFindPath(sinkID:number, sourceID:number, nodes:GraphNode[], visitedArr:DS.VisitedArray, levelGraph:number[], path:number[], activeEdge:number[]):boolean{
+function DinicFindPath(sinkID:number, sourceID:number, nodes:GraphNode[], visitedArr:Dict.VisitedArray, levelGraph:number[], path:number[], activeEdge:number[]):boolean{
     fPath++;
 
     let [visited, visitedToken] = visitedArr.UpdateToken();
@@ -257,7 +258,7 @@ export function DinicMaxFlow(network:DinicNetwork, sourceID:number, sinkID:numbe
     let edges = network.edgeList;
 
     let levelGraph:number[] = Util.Fill<number>(nodes.length, 0);
-    let visitedArr = new DS.VisitedArray(nodes.length);
+    let visitedArr = new Dict.VisitedArray(nodes.length);
     let path = Util.Fill<number>(nodes.length, -1); //Stores edge used to traverse to the node
 
     let pathFound = true;
@@ -303,7 +304,7 @@ export function MinCut(network:DinicNetwork, sourceID:number, sinkID:number, lev
 
     let nodes = network.nodeList;
     let visited = Util.Fill<boolean>(nodes.length, false);
-    let frontier = new DS.CircularBufferQueue<number>();
+    let frontier = new Q.CircularBufferQueue<number>();
     frontier.Enqueue(sourceID);
     visited[sourceID] = true;
     while(frontier.Count() > 0){

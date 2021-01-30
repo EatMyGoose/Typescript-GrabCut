@@ -1,4 +1,5 @@
-import * as Util from "./Utility";
+import * as Dict from "./Dictionary";
+import * as Util from "../Utility";
 
 export interface IQueue<T> {
     Enqueue(value: T): void;
@@ -109,20 +110,20 @@ export class CircularBufferQueue<T> implements IQueue<T>{
 
 }
 
-export class LabelledCircularQueue<T extends dictKey> extends CircularBufferQueue<T>{
+export class LabelledCircularQueue extends CircularBufferQueue<number>{
     protected skip: boolean[];
-    protected indices: Dictionary<number>;
+    protected indices: Dict.IHashtable<number>;
 
     constructor(initialSize: number = 32) {
         super(initialSize);
         this.skip = Util.Fill<boolean>(initialSize, false);
-        this.indices = new Dictionary<number>();
+        this.indices = new Dict.ObjectDict<number>();
     }
 
     private ResizeBuffers(currentSize:number, newSize:number):void {
         let resizedSkip = new Array(newSize);
         let resizedBuffer = new Array(newSize);
-        let newDict = new Dictionary<number>();
+        let newDict = new Dict.ObjectDict<number>();
         let destInd = 0;
         for(let i = 0; i < currentSize; i++){
             let ind = (this.tail + i) % currentSize;
@@ -143,11 +144,11 @@ export class LabelledCircularQueue<T extends dictKey> extends CircularBufferQueu
         this.head = this.count;
     }
 
-    Contains(value:T):boolean{
+    Contains(value:number):boolean{
         return this.indices.ContainsKey(value);
     }
     
-    Remove(value:T){
+    Remove(value:number){
         this.count--;
         let ind = this.indices.Get(value);
         if(!this.indices.ContainsKey(value)){
@@ -157,7 +158,7 @@ export class LabelledCircularQueue<T extends dictKey> extends CircularBufferQueu
         this.skip[ind] = true;
     }
 
-    Enqueue(value: T) {
+    Enqueue(value: number) {
         this.count++;
 
         this.skip[this.head] = false;
@@ -187,12 +188,12 @@ export class LabelledCircularQueue<T extends dictKey> extends CircularBufferQueu
         }
     }
 
-    Peek(): T {
+    Peek(): number {
         this.MoveToValid();
         return super.Peek();
     }
 
-    Dequeue() : T {
+    Dequeue() : number {
         this.MoveToValid();
         let dequeued = super.Dequeue();
         if(!this.indices.ContainsKey(dequeued)){
@@ -200,57 +201,5 @@ export class LabelledCircularQueue<T extends dictKey> extends CircularBufferQueu
         }
         this.indices.Remove(dequeued);
         return dequeued;
-    }
-}
-
-export type dictKey = number | string;
-
-interface hashtable<TValue> {
-    [key: number]: TValue;
-    [key: string]: TValue;
-}
-//Implemented to get typescript to stop complaining about noImplicitAny from the Object based hashtable
-
-export class Dictionary<TValue>{
-    private hashtable: hashtable<TValue> = {};
-    constructor() {
-
-    }
-
-    ContainsKey(key: dictKey): boolean {
-        return this.hashtable.hasOwnProperty(key);
-    }
-
-    Remove(key : dictKey){
-        delete this.hashtable[key];
-    }
-
-    Get(key: dictKey): TValue {
-        return this.hashtable[key];
-    }
-
-    Set(key: dictKey, value: TValue): void {
-        this.hashtable[key] = value;
-    }
-}
-
-export class VisitedArray {
-    private visited: number[];
-    private token: number;
-    constructor(size: number) {
-        this.visited = Util.Fill<number>(size, -1);
-        this.token = 0;
-    }
-
-    UpdateToken(): [number[], number] {
-        const threshold = 2147483647;
-        if (this.token >= threshold) {
-            //Loop back to prevent overflow issues
-            this.token = 1;
-            //Clear old values
-            Util.Memset(this.visited, 0);
-        }
-        this.token += 1;
-        return [this.visited, this.token];
     }
 }

@@ -1,4 +1,5 @@
-import { Dictionary, dictKey } from "./Collections";
+//import { Dictionary, dictKey } from "./Collections/Collections/Collections";
+import * as Dict from "./Collections/Dictionary"
 
 export function Clamp(val:number, upper:number, lower:number){
     if(val > upper) return upper;
@@ -88,8 +89,8 @@ export function Sum(arr: number[]): number {
     return acc;
 }
 
-export function HashItems<T>(list: T[], keyGenerator: (item: T) => dictKey): Dictionary<T> {
-    let dict = new Dictionary<T>();
+export function HashItems<T>(list: T[], keyGenerator: (item: T) => number): Dict.IHashtable<T> {
+    let dict = new Dict.ObjectDict<T>();
     for (let i = 0; i < list.length; i++) {
         let item = list[i];
         let key = keyGenerator(item);
@@ -114,7 +115,7 @@ export function Fill2DRect<T>(
 export function UniqueRandom(nNumbers: number, upperInclusive: number): number[] {
     if (nNumbers > upperInclusive) throw new Error('UniqueRandom: nNumbers must be smaller than upperInclusive');
 
-    let dict = new Dictionary<boolean>();
+    let dict = new Dict.ObjectDict<boolean>();
     let selected = [];
     while (selected.length < nNumbers) {
         let rand = Math.floor(Math.random() * upperInclusive);

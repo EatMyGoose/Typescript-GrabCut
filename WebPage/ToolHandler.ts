@@ -5,6 +5,8 @@ export interface IToolHandler{
     MouseDown(canvasPoint:Cam.Point):Ed.IDrawCall;
     MouseDrag(canvasPoint:Cam.Point):Ed.IDrawCall;
     MouseUp(canvasPoint:Cam.Point):Ed.IDrawCall;
+    GetID():string;
+    GetCursor(canvasPoint:Cam.Point): Ed.IDrawCall;
 }
 
 export class HollowRectToolHandler implements IToolHandler{
@@ -29,6 +31,14 @@ export class HollowRectToolHandler implements IToolHandler{
     MouseUp(canvasPoint: Cam.Point): Ed.IDrawCall {
         this.selEnd = canvasPoint;
         return this.UpdateRect();
+    }
+
+    GetID(){
+        return "hollow_rect";
+    }
+
+    GetCursor(canvasPoint:Cam.Point): Ed.IDrawCall{
+        return null;
     }
 
     private UpdateRect():Ed.HollowRectDrawCall{
@@ -58,6 +68,14 @@ export class InvertedRectToolHandler implements IToolHandler{
     MouseUp(canvasPoint: Cam.Point): Ed.IDrawCall {
         this.p2 = canvasPoint;
         return this.GenRect();
+    }
+
+    GetID(){
+        return "inverted_rect";
+    }
+
+    GetCursor(canvasPoint:Cam.Point): Ed.IDrawCall{
+        return null;
     }
 
     private GenRect(): Ed.InvertedRectDrawCall {
@@ -90,5 +108,13 @@ export class SegmentToolHandler implements IToolHandler{
     MouseUp(canvasPoint: Cam.Point): Ed.IDrawCall {
         this.segment.AddEndPoint(canvasPoint, this.width);
         return this.segment;
+    }
+
+    GetID(){
+        return "segment_brush";
+    }
+
+    GetCursor(canvasPoint:Cam.Point): Ed.IDrawCall{
+        return new Ed.HollowCircleCall(canvasPoint, this.width);
     }
 }

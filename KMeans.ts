@@ -1,6 +1,6 @@
 import * as Util from './Utility';
 import * as Mat from "./Matrix";
-import { Dictionary } from './Collections';
+import * as Dict from './Collections/Dictionary';
 import * as Conv from './ConvergenceChecker';
 import * as V3 from "./V3";
 
@@ -63,7 +63,7 @@ export enum Initializer {
 //distinctClustersFound is false if all values in data are equal.
 
 function kMeansPlusPlusInit(nClusters: number, data: Mat.Matrix[]): [boolean, Mat.Matrix[]] {
-    let selected = new Dictionary<boolean>();
+    let selected = new Dict.ObjectDict<boolean>();
     let firstIndex = Math.floor(Math.random() * (data.length - 1));
     selected.Set(firstIndex, true);
     let centres: Mat.Matrix[] = [data[firstIndex]];

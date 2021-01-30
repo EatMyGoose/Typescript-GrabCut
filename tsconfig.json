@@ -10,6 +10,5 @@
       "alwaysStrict":true,
       "lib": ["dom", "es5", "ES2015"]
     },
-    "include": ["*.ts", "WebPage/*.ts"],
-    //"exclude": ["Main.ts"]
+    "include": ["*.ts", "WebPage/*.ts", "Collections/*.ts"],
 }

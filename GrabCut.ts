@@ -1,5 +1,4 @@
 import * as GMM from "./GMM";
-import * as Dinic from "./DinicFlowSolver";
 import * as BK from "./BKGraph";
 import * as FlowBase from "./FlowNetworkSolver";
 import * as Mat from "./Matrix";
@@ -16,9 +15,9 @@ export enum Trimap {
 export interface Options {
     tolerance: number, //in %
     maxIterations: number,
-    cohesionFactor:number,
-    nFGClusters:number,
-    nBGClusters:number
+    cohesionFactor: number,
+    nFGClusters: number,
+    nBGClusters: number
 }
 
 export class GrabCut {
@@ -31,7 +30,7 @@ export class GrabCut {
     private fgGMM = new GMM.GMM();
     private bgGMM = new GMM.GMM();
 
-    constructor(image: Mat.Matrix[], width:number, height:number) {
+    constructor(image: Mat.Matrix[], width: number, height: number) {
         this.height = height;
         this.width = width;
 
@@ -64,7 +63,7 @@ export class GrabCut {
         //Initial color GMMs
         const GMM_N_ITER = 5;
         const MIN_PERCENT_CHANGE = 1;
-        
+
         console.time("Grabcut-GM");
         this.fgGMM.Fit(fgPixels, opt.nFGClusters, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
         this.bgGMM.Fit(bgPixels, opt.nBGClusters, GMM.Initializer.KMeansPlusPlus, GMM_N_ITER, MIN_PERCENT_CHANGE);
@@ -73,7 +72,7 @@ export class GrabCut {
         this.RunIterations(opt.maxIterations, opt.tolerance, opt.cohesionFactor);
     }
 
-    RunIterations(nIter: number, tolerancePercent: number, cohesionFactor:number) {
+    RunIterations(nIter: number, tolerancePercent: number, cohesionFactor: number) {
         //Create network graph (with edges between neighbouring pixels set)
         //Clone this network & populate with source and sink for use in the graphcut.
         let flowNetwork: FlowBase.IFlowNetwork = new BK.BKNetwork();//new Dinic.DinicNetwork();;
@@ -95,11 +94,11 @@ export class GrabCut {
 
             console.time("Grabcut-Graph init");
 
-            let filterEmptyGroups = (indices:number[], groupSize:number[]) => {
+            let filterEmptyGroups = (indices: number[], groupSize: number[]) => {
                 let validIndices = [];
                 let nonEmptyGroups = [];
-                for(let i = 0; i < indices.length; i++){
-                    if(groupSize[i] > 0){
+                for (let i = 0; i < indices.length; i++) {
+                    if (groupSize[i] > 0) {
                         validIndices.push(indices[i]);
                         nonEmptyGroups.push(groupSize[i]);
                     }
@@ -172,18 +171,10 @@ export class GrabCut {
         let fgPixels: Mat.Matrix[] = [];
         let bgPixels: Mat.Matrix[] = [];
 
-        let right = left + width;
-        let bot = top + height;
-        for (let r = top; r < bot; r++) {
-            for (let c = left; c < right; c++) {
-                let linearIndex = GetArrayIndex(r, c, width);
-                let currentPixel = img[linearIndex];
-                if (matte[linearIndex] == Trimap.Foreground) {
-                    fgPixels.push(currentPixel);
-                } else {
-                    bgPixels.push(currentPixel);
-                }
-            }
+        for (let idx = 0; idx < img.length; idx++) {
+            let currentPixel = img[idx];
+            if (matte[idx] == Trimap.Foreground) fgPixels.push(currentPixel);
+            else  bgPixels.push(currentPixel);
         }
         return [fgPixels, bgPixels];
     }
@@ -191,8 +182,8 @@ export class GrabCut {
     //Returns the FG and BG group sizes
     private static LabelPixels(
         matte: Uint8Array, height: number, width: number,
-        fgGMM: GMM.GMM, bgGMM: GMM.GMM, 
-        img: Mat.Matrix[],labels: number[]): 
+        fgGMM: GMM.GMM, bgGMM: GMM.GMM,
+        img: Mat.Matrix[], labels: number[]):
         [number[], number[], number[], number[]] {
 
         let nFGClusters = fgGMM.clusters.length;
@@ -219,7 +210,7 @@ export class GrabCut {
             for (let c = 0; c < width; c++) {
                 let linearIndex = GetArrayIndex(r, c, width);
                 let pixelIsFG = matte[linearIndex] == Trimap.Foreground;
-                let currentPixel:Mat.Matrix = img[linearIndex];
+                let currentPixel: Mat.Matrix = img[linearIndex];
 
                 if (pixelIsFG) {
                     let likelihoods = fgGMM.Predict(currentPixel).likelihoods;
@@ -240,48 +231,10 @@ export class GrabCut {
         return [fgIndices, fgGroupSizes, bgIndices, bgGroupSizes];
     }
 
-    //Returns the [FG,BG] pixel clusters
-    private static BinPixels(
-        fgGMM: GMM.GMM, bgGMM: GMM.GMM,
-        bgPixels: Mat.Matrix[], fgPixels: Mat.Matrix[]): [Mat.Matrix[][], Mat.Matrix[][]] {
-
-        let maxIndex = function (arr: number[]): number {
-            let max = Number.MIN_SAFE_INTEGER;
-            let maxInd = 0;
-            for (let i = 0; i < arr.length; i++) {
-                let current = arr[i];
-                if (current > max) {
-                    maxInd = i;
-                    max = current;
-                }
-            }
-            return maxInd;
-        }
-
-        let fg: Mat.Matrix[][] = Util.FillObj<Mat.Matrix[]>(fgGMM.clusters.length, () => []);
-        let bg: Mat.Matrix[][] = Util.FillObj<Mat.Matrix[]>(bgGMM.clusters.length, () => []);
-
-        for (let i = 0; i < bgPixels.length; i++) {
-            let pixel = bgPixels[i];
-            let prob = bgGMM.Predict(pixel).likelihoods;
-            let bin = maxIndex(prob);
-            bg[bin].push(pixel);
-        }
-
-        for (let i = 0; i < fgPixels.length; i++) {
-            let pixel = fgPixels[i];
-            let prob = fgGMM.Predict(pixel).likelihoods;
-            let bin = maxIndex(prob);
-            fg[bin].push(pixel);
-        }
-
-        return [fg, bg];
-    }
-
     //TODO: Clone this network so it can be reused between iterations
     //Pixel to pixel edge capacities do not change
     //Returns the resultant network and the highest edge capacity
-    private static GeneratePixel2PixelGraph(img: Mat.Matrix[], width:number, height:number, network: FlowBase.IFlowNetwork, cohesionFactor:number): [FlowBase.IFlowNetwork, number] {
+    private static GeneratePixel2PixelGraph(img: Mat.Matrix[], width: number, height: number, network: FlowBase.IFlowNetwork, cohesionFactor: number): [FlowBase.IFlowNetwork, number] {
 
         let isV3 = V3.isV3(img[0]);
 
@@ -310,9 +263,9 @@ export class GrabCut {
         let nCount = 0;
         let diffAcc = 0;
 
-        let fnDiffSquare = (isV3)? 
-            V3.DiffNormSquare:
-            function(v1:Mat.Matrix, v2:Mat.Matrix) {return Mat.NormSquare(Mat.Sub(v1, v2))};
+        let fnDiffSquare = (isV3) ?
+            V3.DiffNormSquare :
+            function (v1: Mat.Matrix, v2: Mat.Matrix) { return Mat.NormSquare(Mat.Sub(v1, v2)) };
 
         for (let r = 0; r < height; r++) {
             for (let c = 0; c < width; c++) {
@@ -322,7 +275,7 @@ export class GrabCut {
                 for (let i = 0; i < neighbours.length; i++) {
                     let [validNeighbour, nR, nC] = GetNeighbour(r, c, i);
                     if (!validNeighbour) continue;
-                    let neighbourInd = GetArrayIndex(nR,nC, width);
+                    let neighbourInd = GetArrayIndex(nR, nC, width);
                     let neighbouringPixel = img[neighbourInd];
                     let diffSquare = fnDiffSquare(currentPixel, neighbouringPixel);
                     diffAcc += diffSquare;
@@ -369,7 +322,6 @@ export class GrabCut {
         return [network, maxCap];
     }
 
-
     //Creates edges from the source nodes to the pixels &
     //edges from the pixel node to the sink node
 
@@ -402,33 +354,31 @@ export class GrabCut {
     private static UpdateSourceAndSink(
         network: FlowBase.IFlowNetwork, maxCap: number,
         gmmFG: GMM.GMM, gmmBG: GMM.GMM,
-        image: Mat.Matrix[], width:number, height:number,
+        image: Mat.Matrix[], width: number, height: number,
         trimap: Uint8Array,
         srcNode: number, sinkNode: number): void {
 
-        for (let r = 0; r < height; r++) {
-            for (let c = 0; c < width; c++) {
-                let linearIndex = GetArrayIndex(r, c, width);
-                switch (trimap[linearIndex]) {
-                    case Trimap.Foreground: {
-                        network.UpdateEdge(srcNode, linearIndex, maxCap);
-                        network.UpdateEdge(linearIndex, sinkNode, 0);
-                        break;
-                    }
-                    case Trimap.Background: {
-                        network.UpdateEdge(srcNode, linearIndex, 0);
-                        network.UpdateEdge(linearIndex, sinkNode, maxCap);
-                        break;
-                    }
-                    case Trimap.Unknown: {
-                        let currentPixel:Mat.Matrix = image[linearIndex];
-                        let pFore = GrabCut.GetTLinkWeight(gmmBG, currentPixel);
-                        let pBack = GrabCut.GetTLinkWeight(gmmFG, currentPixel);
+        let nPixels = width * height;
+        for (let idx = 0; idx < nPixels; idx++) {
+            switch (trimap[idx]) {
+                case Trimap.Foreground: {
+                    network.UpdateEdge(srcNode, idx, maxCap);
+                    network.UpdateEdge(idx, sinkNode, 0);
+                    break;
+                }
+                case Trimap.Background: {
+                    network.UpdateEdge(srcNode, idx, 0);
+                    network.UpdateEdge(idx, sinkNode, maxCap);
+                    break;
+                }
+                case Trimap.Unknown: {
+                    let currentPixel: Mat.Matrix = image[idx];
+                    let pFore = GrabCut.GetTLinkWeight(gmmBG, currentPixel);
+                    let pBack = GrabCut.GetTLinkWeight(gmmFG, currentPixel);
 
-                        network.UpdateEdge(srcNode, linearIndex, pFore);
-                        network.UpdateEdge(linearIndex, sinkNode, pBack);
-                        break;
-                    }
+                    network.UpdateEdge(srcNode, idx, pFore);
+                    network.UpdateEdge(idx, sinkNode, pBack);
+                    break;
                 }
             }
         }

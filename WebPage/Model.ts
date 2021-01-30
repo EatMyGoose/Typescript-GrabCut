@@ -1,4 +1,3 @@
-import { FileInput } from "./FileInput";
 import * as Cut from "../GrabCut";
 import * as ImgUtil from "./ImageUtil";
 import * as Util from "../Utility";
@@ -7,13 +6,14 @@ import { CanvasView } from "./CanvasView";
 import { PreviewView } from "./PreviewView";
 import * as Ed from "./DrawCall";
 import * as Mat from "../Matrix";
+import * as Dict from "../Collections/Dictionary";
 
 export const FGColour = new ImgUtil.RGBA(255, 0, 0, 255); //Red
 export const BGColour = new ImgUtil.RGBA(0, 0, 255, 255); //Blue
 
-interface CroppedImageSet{
-    bitmap:string,
-    mask:string,
+interface CroppedImageSet {
+    bitmap: string,
+    mask: string,
 }
 
 export class Model {
@@ -21,49 +21,56 @@ export class Model {
     private originalImageData: ImageData;
 
     //Stores the result of the cropped image in a data URL
-    private croppedUnfeathered:CroppedImageSet = null;
-    private croppedFeathered:CroppedImageSet = null;
+    private croppedUnfeathered: CroppedImageSet = null;
+    private croppedFeathered: CroppedImageSet = null;
 
     private canvasView: CanvasView;
     private preview: PreviewView;
 
     private canvasDrawOps: Ed.IDrawCall[] = [];
-    private pendingDrawOps: Ed.IDrawCall = null;
+    private uiDrawOps: Dict.ObjectDict<Ed.IDrawCall> = new Dict.ObjectDict<Ed.IDrawCall>();
 
     constructor() {
     }
 
-    BeginDrawCall(call: Ed.IDrawCall): void {
-        this.pendingDrawOps = call;
+    BeginDrawCall(id: string, call: Ed.IDrawCall): void {
+        this.uiDrawOps.Set(id, call);
         this.TriggerCanvasRedraw();
     }
 
-    UpdateDrawCall(call: Ed.IDrawCall, finalize: boolean = false): void {
+    UpdateDrawCall(id: string, call: Ed.IDrawCall, finalize: boolean = false): void {
         if (!finalize) {
-            this.pendingDrawOps = call;
+            this.uiDrawOps.Set(id, call);
         } else {
-            this.pendingDrawOps = null;
+            this.uiDrawOps.Remove(id);
             this.canvasDrawOps.push(call);
         }
         this.TriggerCanvasRedraw();
     }
 
-    UndoLast() {
-        if (this.pendingDrawOps != null) {
-            //Stop current operation
-            this.pendingDrawOps = null;
-        } else {
-            //Stop last queued operation
-            if (this.canvasDrawOps.length == 0) return;
+    RemoveUIElement(id:string){
+        if(this.uiDrawOps.ContainsKey(id)){
+            this.uiDrawOps.Remove(id);
+            this.TriggerCanvasRedraw();
+        }
+    }
 
+    UndoLast(id: string) {
+        //TODO: Implement functionality to undo currently drawn brush as well
+        //Stop last queued operation
+
+        if (id != null && this.uiDrawOps.ContainsKey(id)) {
+            this.uiDrawOps.Remove(id);
+        } else {
+            if (this.canvasDrawOps.length == 0) return;
             this.canvasDrawOps.pop();
         }
         this.TriggerCanvasRedraw();
     }
 
-    GetDrawOps(imgToDestTransform: Mat.Matrix): Ed.IDrawCall[] {
-        let last = (this.pendingDrawOps == null) ? [] : [this.pendingDrawOps];
-        let merged = this.canvasDrawOps.concat(last);
+    GetDrawOps(imgToDestTransform: Mat.Matrix, showUI: boolean): Ed.IDrawCall[] {
+        let tail = (showUI) ? this.uiDrawOps.ToList().map(t => t[1]) : [];
+        let merged = this.canvasDrawOps.concat(tail);
         return merged.map(drawOp => drawOp.Transform(imgToDestTransform));
     }
 
@@ -80,7 +87,6 @@ export class Model {
     }
 
     ClearSelection(): void {
-        this.pendingDrawOps = null;
         this.canvasDrawOps = [];
     }
 
@@ -136,9 +142,13 @@ export class Model {
         return this.originalImage;
     }
 
-    GetCroppedImageURL(alphaOnly: boolean, feathered:boolean): string {
-        let dataSet = feathered? this.croppedFeathered : this.croppedUnfeathered;    
-        return alphaOnly? dataSet.mask : dataSet.bitmap;
+    GetCroppedImageURL(alphaOnly: boolean, feathered: boolean): string | null {
+        let dataSet = feathered ? this.croppedFeathered : this.croppedUnfeathered;
+        if (dataSet != null) {
+            return alphaOnly ? dataSet.mask : dataSet.bitmap;
+        } else {
+            return null;
+        }
     }
 
     private GetTrimap() {
@@ -146,7 +156,7 @@ export class Model {
         let tempCanvas = new ImgUtil.Temp2DCanvas(width, height);
         let hDC = tempCanvas.GetHDC();
         let Identity = Mat.Identity(3);
-        let ops = this.GetDrawOps(Identity);
+        let ops = this.GetDrawOps(Identity, false);
         ops.forEach(op => op.Draw(hDC));
 
         let imgData = tempCanvas.GetImageData();
@@ -185,17 +195,18 @@ export class Model {
         cohesionFactor: number): void {
 
         let [width, height] = this.GetImageDim();
-        let img:Mat.Matrix[] = ImgUtil.ImgData2_1DMat(this.originalImageData);
+        let img: Mat.Matrix[] = ImgUtil.ImgData2_1DMat(this.originalImageData);
         let cut = new Cut.GrabCut(img, width, height);
         let trimap = this.GetTrimap();
 
         cut.SetTrimap(trimap, width, height);
-        cut.BeginCrop({ 
-            tolerance: tolerance, 
-            maxIterations: maxIter, 
-            cohesionFactor:cohesionFactor, 
-            nFGClusters: nFGClusters, 
-            nBGClusters: nBGClusters});
+        cut.BeginCrop({
+            tolerance: tolerance,
+            maxIterations: maxIter,
+            cohesionFactor: cohesionFactor,
+            nFGClusters: nFGClusters,
+            nBGClusters: nBGClusters
+        });
 
         let mask = cut.GetAlphaMask();
 

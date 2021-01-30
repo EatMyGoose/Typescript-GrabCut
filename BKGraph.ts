@@ -1,4 +1,5 @@
-import * as DS from "./Collections";
+import * as Dict from "./Collections/Dictionary";
+import * as Q from "./Collections/Queue";
 import * as Util from "./Utility";
 import * as FlowBase from "./FlowNetworkSolver";
 
@@ -36,7 +37,7 @@ class BKNode {
 export class BKNetwork implements FlowBase.IFlowNetwork {
     nodes: BKNode[] = [];
     edges: BKEdge[] = [];
-    private edgeList: DS.Dictionary<BKEdge>[] = [];
+    private edgeList: Dict.IHashtable<BKEdge>[] = [];
 
     constructor() {
 
@@ -45,7 +46,7 @@ export class BKNetwork implements FlowBase.IFlowNetwork {
     CreateNode(): number {
         let ind = this.nodes.length;
         this.nodes.push(new BKNode());
-        this.edgeList.push(new DS.Dictionary<BKEdge>());
+        this.edgeList.push(new Dict.ObjectDict<BKEdge>());
         return ind;
     }
 
@@ -103,7 +104,7 @@ const NULL_PARENT = -1;
 //Returns null if no path is found
 //Returned Edge: from(source) -> to(sink)
 //The edge represents the connection between the source and sink trees
-function BKGrow(nodes: BKNode[], active: DS.IQueue<number>, flags: Uint8Array, parents: number[], edgeToParent: BKEdge[], activeEdge:number[]): BKEdge | null {
+function BKGrow(nodes: BKNode[], active: Q.IQueue<number>, flags: Uint8Array, parents: number[], edgeToParent: BKEdge[], activeEdge:number[]): BKEdge | null {
 
     while (active.Count() > 0) {
         let nInd = active.Peek();
@@ -271,7 +272,7 @@ function LinkedToSink(nodeInd: number, sinkInd: number, parents: number[], edgeT
     return true;
 }
 
-function BKAdopt(nodes: BKNode[], orphanSet: number[], flags: Uint8Array, parents: number[], edgeToParent: BKEdge[], activeSet: DS.LabelledCircularQueue<number>, src: number, sink: number) {
+function BKAdopt(nodes: BKNode[], orphanSet: number[], flags: Uint8Array, parents: number[], edgeToParent: BKEdge[], activeSet: Q.LabelledCircularQueue, src: number, sink: number) {
     while (orphanSet.length > 0) {
         let ind = orphanSet.pop();
         let orphanNode = nodes[ind];
@@ -384,7 +385,7 @@ BKMaxflow = function (src: number, sink: number, network: BKNetwork): FlowBase.I
 
     let nodes = network.nodes;
 
-    let active = new DS.LabelledCircularQueue<number>();
+    let active = new Q.LabelledCircularQueue();
     let activeEdge = Util.Fill<number>(nodes.length, 0);
     //let flags: Uint8Array = Util.Fill<TreeFlag>(nodes.length, TreeFlag.Free);
     let flags: Uint8Array = new Uint8Array(nodes.length); //default to 0, i.e. TreeFlag.Free
